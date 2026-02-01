@@ -4,40 +4,54 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import RichTextEditor from "@/components/editor/RichTextEditor";
+import { renderRichHtml } from "@/lib/render/richText";
 
 const CHAT_ID = "30377141-83e8-4d30-a8e8-1004688c5809";
 
 type Message = {
   id: string;
-  content: string;
+  content: string; // HTML
   created_at: string;
   persona: {
     id: string;
     name: string;
     avatar_url?: string | null;
   };
+  optimistic?: boolean;
 };
 
 export default function ChatPage() {
   const { activePersona } = useActivePersona();
+
   const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState("");
+  const [html, setHtml] = useState("");
   const [loading, setLoading] = useState(true);
+
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // ✅ cache precisa ficar DENTRO do componente (useRef não pode ser no topo do arquivo)
+  // cache: persona_id -> { name, avatar_url }
   const personaCache = useRef<
     Record<string, { name: string; avatar_url: string | null }>
   >({});
 
+  // auto-scroll só quando o usuário está “no fim”
+  const stickToBottomRef = useRef(true);
+
   const activePersonaId = activePersona?.id ?? null;
+
+  function isNearBottom() {
+    const el = scrollerRef.current;
+    if (!el) return true;
+    const threshold = 140;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }
 
   function scrollToBottom(smooth = true) {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
   }
 
-  // ✅ garante (e cacheia) nome/avatar de uma persona
   async function ensurePersona(personaId: string) {
     if (personaCache.current[personaId]) return personaCache.current[personaId];
 
@@ -77,10 +91,11 @@ export default function ChatPage() {
           name,
           avatar_url
         )
-      `,
+      `
       )
       .eq("chat_id", CHAT_ID)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .limit(200);
 
     if (error) {
       console.error("ERRO loadMessages:", error);
@@ -99,7 +114,6 @@ export default function ChatPage() {
       },
     }));
 
-    // ✅ alimenta o cache com o que veio do join
     for (const msg of mapped) {
       personaCache.current[msg.persona.id] = {
         name: msg.persona.name,
@@ -110,26 +124,25 @@ export default function ChatPage() {
     setMessages(mapped);
     setLoading(false);
 
-    // primeiro load: sem animação
+    stickToBottomRef.current = true;
     setTimeout(() => scrollToBottom(false), 0);
   }
 
   async function sendMessage() {
-    const content = text.trim();
-    if (!content) return;
+    const content = html.trim();
+    if (!content || content === "<p></p>") return;
 
-    if (!activePersona) {
-      console.error("Sem persona ativa");
-      return;
-    }
+    if (!activePersona) return;
 
-    // garante cache da sua persona (pra não virar "…" no realtime em outras abas)
+    // se está no fim, mantém “grudado”
+    stickToBottomRef.current = isNearBottom();
+
+    // alimenta cache com sua persona
     personaCache.current[activePersona.id] = {
       name: activePersona.name,
       avatar_url: (activePersona as any).avatar_url ?? null,
     };
 
-    // otimista: cria uma mensagem local instantaneamente
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     const optimistic: Message = {
       id: optimisticId,
@@ -140,32 +153,33 @@ export default function ChatPage() {
         name: activePersona.name,
         avatar_url: (activePersona as any).avatar_url ?? null,
       },
+      optimistic: true,
     };
 
     setMessages((prev) => [...prev, optimistic]);
-    setText("");
-    setTimeout(() => scrollToBottom(true), 0);
+    setHtml("");
+
+    setTimeout(() => {
+      if (stickToBottomRef.current) scrollToBottom(true);
+    }, 0);
 
     const { data, error } = await supabase
       .from("messages")
       .insert({
         chat_id: CHAT_ID,
         persona_id: activePersona.id,
-        content,
+        content, // HTML
       })
       .select("id, content, created_at, persona_id")
       .single();
 
     if (error) {
       console.error("ERRO AO ENVIAR:", error);
-      // remove a otimista se falhar
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      // restaura texto pra não perder
-      setText(content);
+      setHtml(content);
       return;
     }
 
-    // substitui a otimista pelo registro real
     setMessages((prev) =>
       prev.map((m) =>
         m.id === optimisticId
@@ -179,8 +193,8 @@ export default function ChatPage() {
                 avatar_url: (activePersona as any).avatar_url ?? null,
               },
             }
-          : m,
-      ),
+          : m
+      )
     );
   }
 
@@ -200,11 +214,13 @@ export default function ChatPage() {
         (payload) => {
           const row = payload.new as any;
 
+          // não “puxa” se o usuário está lendo histórico
+          stickToBottomRef.current = isNearBottom();
+
           (async () => {
             const info = await ensurePersona(row.persona_id);
 
             setMessages((prev) => {
-              // evita duplicar (realtime + otimista + reload)
               if (prev.some((m) => m.id === row.id)) return prev;
 
               return [
@@ -222,9 +238,11 @@ export default function ChatPage() {
               ];
             });
 
-            setTimeout(() => scrollToBottom(true), 0);
+            setTimeout(() => {
+              if (stickToBottomRef.current) scrollToBottom(true);
+            }, 0);
           })();
-        },
+        }
       )
       .subscribe();
 
@@ -241,14 +259,25 @@ export default function ChatPage() {
     });
   }, [messages, activePersonaId]);
 
-  useEffect(() => {
-    if (!loading) scrollToBottom(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length]);
+  function handleScroll() {
+    stickToBottomRef.current = isNearBottom();
+  }
+
+  // Enter para enviar / Shift+Enter quebra linha
+  function onEditorKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+      <div
+        ref={scrollerRef}
+        onScroll={handleScroll}
+        className="flex-1 space-y-2 overflow-y-auto p-4"
+      >
         {loading && (
           <div className="text-sm text-muted-foreground">Carregando...</div>
         )}
@@ -259,16 +288,22 @@ export default function ChatPage() {
             className={`flex ${m._isMine ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${
+              className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${
                 m._isMine ? "bg-primary text-primary-foreground" : "bg-muted"
-              }`}
+              } ${m.optimistic ? "opacity-70" : ""}`}
             >
               {!m._isMine && (
                 <div className="mb-1 text-xs font-medium text-muted-foreground">
                   {m.persona?.name}
                 </div>
               )}
-              <div>{m.content}</div>
+
+              <div
+                className="prose prose-invert max-w-none text-sm"
+                dangerouslySetInnerHTML={{
+                  __html: renderRichHtml(m.content),
+                }}
+              />
             </div>
           </div>
         ))}
@@ -276,18 +311,32 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="flex gap-2 border-t p-3">
-        <Input
-          placeholder={
-            activePersona
-              ? `Mensagem como ${activePersona.name}`
-              : "Selecione uma persona"
-          }
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-        />
-        <Button onClick={sendMessage} disabled={!activePersona || !text.trim()}>
+      <div className="border-t p-3 space-y-2">
+        <div className="text-xs text-muted-foreground">
+          {activePersona
+            ? `Mensagem como ${activePersona.name}`
+            : "Selecione uma persona"}
+          <span className="ml-2 opacity-70">• Shift+Enter quebra linha</span>
+        </div>
+
+        {/* wrapper para capturar Enter/Shift+Enter */}
+        <div onKeyDown={onEditorKeyDown}>
+          <RichTextEditor
+            valueHtml={html}
+            onChangeHtml={setHtml}
+            placeholder={activePersona ? "Escreva..." : "Selecione uma persona"}
+            folder="chat"
+            bucket="media"
+            compact
+            imageInsertMode="both"
+          />
+        </div>
+
+        <Button
+          className="w-full rounded-2xl"
+          onClick={sendMessage}
+          disabled={!activePersona || !html.trim() || html.trim() === "<p></p>"}
+        >
           Enviar
         </Button>
       </div>
