@@ -93,7 +93,7 @@ export default function WikiViewPage({ params }: { params: { id: string } }) {
 
           <CardContent>
             <div
-              className="prose prose-invert max-w-none text-sm"
+              className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
               dangerouslySetInnerHTML={{
                 __html: renderRichHtml(row.content_html),
               }}

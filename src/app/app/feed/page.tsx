@@ -133,7 +133,7 @@ export default function FeedPage() {
 
               <CardContent className="space-y-3">
                 <div
-                  className="prose prose-invert max-w-none text-sm"
+                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
                   dangerouslySetInnerHTML={{
                     __html: DOMPurify.sanitize(p.content),
                   }}
