@@ -199,7 +199,7 @@ export default function PublicProfilePage({
                     </div>
 
                     <div
-                      className="prose prose-invert max-w-none text-sm"
+                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
                       dangerouslySetInnerHTML={{
                         __html: renderRichHtml(p.content),
                       }}
