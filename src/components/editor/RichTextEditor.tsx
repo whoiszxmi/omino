@@ -56,6 +56,69 @@ const EMPTY_ACTIVE: ActiveState = {
   canBullet: false,
 };
 
+function getEditorCss() {
+  return `
+    .ProseMirror {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .ProseMirror p,
+    .ProseMirror li,
+    .ProseMirror a,
+    .ProseMirror code,
+    .ProseMirror pre {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .ProseMirror img {
+      max-width: 100%;
+      display: block;
+      border-radius: 0.75rem;
+    }
+
+    .ProseMirror .tableWrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ProseMirror table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+      max-width: 100%;
+      background: var(--card);
+    }
+
+    .ProseMirror .tableWrapper table {
+      min-width: 520px;
+    }
+
+    .ProseMirror th,
+    .ProseMirror td {
+      border: 1px solid var(--border);
+      padding: 0.5rem;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      position: relative;
+    }
+
+    .ProseMirror th {
+      background: var(--muted);
+    }
+
+    .ProseMirror .selectedCell:after {
+      background: color-mix(in srgb, var(--primary) 30%, transparent);
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+  `;
+}
+
 export default function RichTextEditor({
   valueHtml,
   onChangeHtml,
@@ -89,8 +152,8 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class: cx(
-          "w-full rounded-2xl border px-3 py-2 focus:outline-none",
-          "text-sm leading-relaxed bg-background",
+          "w-full px-3 py-2 focus:outline-none",
+          "text-sm leading-relaxed",
           compact ? "min-h-[96px]" : "min-h-[160px]",
         ),
       },
@@ -226,6 +289,9 @@ export default function RichTextEditor({
 
   return (
     <div className="space-y-2">
+      <style jsx global>
+        {getEditorCss()}
+      </style>
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
           type="multiple"
@@ -317,7 +383,9 @@ export default function RichTextEditor({
         )}
       </div>
 
-      <EditorContent editor={editor} />
+      <div className="rounded-2xl border bg-background overflow-hidden">
+        <EditorContent editor={editor} />
+      </div>
     </div>
   );
 }

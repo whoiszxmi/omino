@@ -6,6 +6,11 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { renderRichHtml } from "@/lib/render/richText";
+import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
+import {
+  getMyHighlights,
+  type HighlightRow,
+} from "@/lib/highlights/highlights";
 
 type Profile = {
   id: string;
@@ -34,6 +39,57 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<number>(0);
 
   const [posts, setPosts] = useState<PostRow[]>([]);
+  const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(true);
+
+  function handleHighlightToggle(
+    scope: "profile" | "community",
+    highlighted: boolean,
+    payload: {
+      targetType: "post" | "wiki";
+      targetId: string;
+      title?: string;
+      coverUrl?: string | null;
+    },
+  ) {
+    if (scope !== "profile") return;
+
+    if (!highlighted) {
+      setHighlights((prev) =>
+        prev.filter(
+          (item) =>
+            !(
+              item.scope === "profile" &&
+              item.target_type === payload.targetType &&
+              item.target_id === payload.targetId
+            ),
+        ),
+      );
+      return;
+    }
+
+    const newRow: HighlightRow = {
+      id: crypto.randomUUID(),
+      scope: "profile",
+      user_id: "me",
+      target_type: payload.targetType,
+      target_id: payload.targetId,
+      title: payload.title ?? null,
+      cover_url: payload.coverUrl ?? null,
+      sort_order: 0,
+      created_at: new Date().toISOString(),
+    };
+
+    setHighlights((prev) => {
+      const exists = prev.some(
+        (item) =>
+          item.scope === "profile" &&
+          item.target_type === payload.targetType &&
+          item.target_id === payload.targetId,
+      );
+      return exists ? prev : [newRow, ...prev];
+    });
+  }
 
   const activePersonaTag = useMemo(() => {
     if (!activePersona) return null;
@@ -134,6 +190,11 @@ export default function ProfilePage() {
 
     if (postsRes.error) console.error("ERRO posts:", postsRes.error);
     setPosts((postsRes.data ?? []) as any);
+
+    setHighlightsLoading(true);
+    const highlightRows = await getMyHighlights("profile");
+    setHighlights(highlightRows);
+    setHighlightsLoading(false);
 
     setLoading(false);
   }
@@ -287,6 +348,71 @@ export default function ProfilePage() {
           {/* Posts do usuário */}
           <Card className="rounded-2xl">
             <CardHeader>
+              <CardTitle className="text-base">Destaques</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {highlightsLoading ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
+                    />
+                  ))}
+                </div>
+              ) : highlights.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Você ainda não adicionou destaques.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {highlights.map((item) => {
+                    const isWiki = item.target_type === "wiki";
+                    const title =
+                      item.title ?? (isWiki ? "Wiki" : "Post");
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                        onClick={() => {
+                          location.href = isWiki
+                            ? `/app/wiki/${item.target_id}`
+                            : `/app/post/${item.target_id}`;
+                        }}
+                      >
+                        <div className="flex h-full flex-col">
+                          <div className="flex-1 bg-muted/40">
+                            {item.cover_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={item.cover_url}
+                                alt={title}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : null}
+                          </div>
+                          <div className="space-y-2 p-3">
+                            <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                              {isWiki ? "Wiki" : "Post"}
+                            </span>
+                            <div className="truncate text-sm font-medium">
+                              {title}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Posts do usuário */}
+          <Card className="rounded-2xl">
+            <CardHeader>
               <CardTitle className="text-base">Seus posts</CardTitle>
             </CardHeader>
 
@@ -306,11 +432,20 @@ export default function ProfilePage() {
                     </div>
 
                     <div
-                      className="prose prose-invert max-w-none text-sm"
+                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
                       dangerouslySetInnerHTML={{
                         __html: renderRichHtml(p.content),
                       }}
                     />
+
+                    <div className="mt-3">
+                      <HighlightButtonGroup
+                        targetType="post"
+                        targetId={p.id}
+                        title={`Post de ${p.personas?.name ?? "Persona"}`}
+                        onToggle={handleHighlightToggle}
+                      />
+                    </div>
                   </div>
                 ))
               )}

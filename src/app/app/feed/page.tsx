@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DOMPurify from "isomorphic-dompurify";
 import PostComments from "@/app/app/feed/PostComments";
+import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
 type Post = {
   id: string;
@@ -133,10 +134,16 @@ export default function FeedPage() {
 
               <CardContent className="space-y-3">
                 <div
-                  className="prose prose-invert max-w-none text-sm"
+                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
                   dangerouslySetInnerHTML={{
                     __html: DOMPurify.sanitize(p.content),
                   }}
+                />
+
+                <HighlightButtonGroup
+                  targetType="post"
+                  targetId={p.id}
+                  title={`Post de ${p.persona.name}`}
                 />
 
                 {/* ✅ comentários do post */}

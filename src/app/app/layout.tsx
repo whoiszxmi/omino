@@ -21,6 +21,7 @@ import {
   UsersRound,
   Plus,
   Settings,
+  Star,
 } from "lucide-react";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -61,6 +62,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith("/app/profile")) {
       return { title: "Perfil", action: null };
     }
+    if (pathname.startsWith("/app/highlights")) {
+      return { title: "Destaques", action: null };
+    }
     return { title: "Feed", action: { label: "Novo", href: "/app/feed/new" } };
   }, [pathname]);
 
@@ -69,6 +73,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       { href: "/app/feed", label: "Feed", icon: Home },
       { href: "/app/chats", label: "Chat", icon: MessageCircle },
       { href: "/app/wiki", label: "Wiki", icon: BookOpen },
+      { href: "/app/highlights", label: "Destaques", icon: Star },
       { href: "/app/personas", label: "Personas", icon: UsersRound },
     ],
     [],
