@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
 type Row = {
   id: string;
@@ -108,6 +109,16 @@ export default function WikiHomePage() {
                   )}
                 </div>
               </CardHeader>
+              <CardContent
+                className="pt-0"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <HighlightButtonGroup
+                  targetType="wiki"
+                  targetId={r.id}
+                  title={r.title}
+                />
+              </CardContent>
             </Card>
           ))}
         </div>

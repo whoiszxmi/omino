@@ -5,39 +5,37 @@ import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { renderRichHtml } from "@/lib/render/richText";
+import PostComments from "@/app/app/feed/PostComments";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
-type Row = {
+type PostRow = {
   id: string;
-  title: string;
-  content_html: string;
+  content: string;
   created_at: string;
-  updated_at: string;
-  category_id: string | null;
-  wiki_categories: { name: string } | null;
-  created_by_persona_id: string;
+  persona_id: string;
+  personas: { name: string; avatar_url: string | null } | null;
 };
 
-export default function WikiViewPage({ params }: { params: { id: string } }) {
-  const [row, setRow] = useState<Row | null>(null);
+export default function PostViewPage({ params }: { params: { id: string } }) {
+  const [post, setPost] = useState<PostRow | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("wiki_pages")
+      .from("posts")
       .select(
         `
         id,
-        title,
-        content_html,
+        content,
         created_at,
-        updated_at,
-        category_id,
-        created_by_persona_id,
-        wiki_categories ( name )
-      `
+        persona_id,
+        personas (
+          name,
+          avatar_url
+        )
+      `,
       )
       .eq("id", params.id)
       .single();
@@ -45,11 +43,11 @@ export default function WikiViewPage({ params }: { params: { id: string } }) {
     setLoading(false);
 
     if (error) {
-      console.error(error);
+      console.error("Erro ao carregar post:", error);
       return;
     }
 
-    setRow(data as any);
+    setPost(data as PostRow);
   }
 
   useEffect(() => {
@@ -59,53 +57,53 @@ export default function WikiViewPage({ params }: { params: { id: string } }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Wiki</h1>
-        <Button variant="secondary" className="rounded-2xl" onClick={() => (location.href = "/app/wiki")}>
+        <h1 className="text-lg font-semibold">Post</h1>
+        <Button
+          variant="secondary"
+          className="rounded-2xl"
+          onClick={() => history.back()}
+        >
           Voltar
         </Button>
       </header>
 
       {loading ? (
         <div className="text-sm text-muted-foreground">Carregando...</div>
-      ) : !row ? (
+      ) : !post ? (
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle className="text-base">Não encontrado</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Essa página não existe.
+            Esse post não existe.
           </CardContent>
         </Card>
       ) : (
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">{row.title}</CardTitle>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {row.wiki_categories?.name && (
-                <span className="rounded-full border px-2 py-0.5">
-                  {row.wiki_categories.name}
-                </span>
-              )}
-              <span>
-                Atualizado: {new Date(row.updated_at).toLocaleString("pt-BR")}
-              </span>
+            <CardTitle className="text-base">
+              {post.personas?.name ?? "Persona"}
+            </CardTitle>
+            <div className="text-xs text-muted-foreground">
+              {new Date(post.created_at).toLocaleString("pt-BR")}
             </div>
           </CardHeader>
 
-          <CardContent>
-            <div className="mb-3">
-              <HighlightButtonGroup
-                targetType="wiki"
-                targetId={row.id}
-                title={row.title}
-              />
-            </div>
+          <CardContent className="space-y-3">
             <div
               className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
               dangerouslySetInnerHTML={{
-                __html: renderRichHtml(row.content_html),
+                __html: renderRichHtml(post.content),
               }}
             />
+
+            <HighlightButtonGroup
+              targetType="post"
+              targetId={post.id}
+              title={`Post de ${post.personas?.name ?? "Persona"}`}
+            />
+
+            <PostComments postId={post.id} />
           </CardContent>
         </Card>
       )}
