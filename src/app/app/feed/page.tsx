@@ -7,13 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import PostComments from "@/app/app/feed/PostComments";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-import { renderRichHtml } from "@/lib/render/richText";
-import {
-  getCommunityHighlights,
-  type HighlightRow,
-  type HighlightTargetType,
-} from "@/lib/highlights/highlights";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type Post = {
   id: string;
@@ -305,13 +298,11 @@ export default function FeedPage() {
                   }}
                 />
 
-                <div onClick={(event) => event.stopPropagation()}>
-                  <HighlightButtonGroup
-                    targetType="post"
-                    targetId={p.id}
-                    title={`Post de ${p.persona.name}`}
-                  />
-                </div>
+                <HighlightButtonGroup
+                  targetType="post"
+                  targetId={p.id}
+                  title={`Post de ${p.persona.name}`}
+                />
 
                 {/* ✅ comentários do post */}
                 <div onClick={(event) => event.stopPropagation()}>

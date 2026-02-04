@@ -292,7 +292,7 @@ export default function RichTextEditor({
   return (
     <div className="space-y-2">
       <style jsx global>
-        {editorCss}
+        {getEditorCss()}
       </style>
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup

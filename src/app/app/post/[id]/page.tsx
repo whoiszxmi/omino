@@ -23,12 +23,6 @@ export default function PostViewPage({ params }: { params: { id: string } }) {
   async function load() {
     setLoading(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) {
-      location.href = "/login";
-      return;
-    }
-
     const { data, error } = await supabase
       .from("posts")
       .select(
@@ -46,14 +40,14 @@ export default function PostViewPage({ params }: { params: { id: string } }) {
       .eq("id", params.id)
       .single();
 
+    setLoading(false);
+
     if (error) {
       console.error("Erro ao carregar post:", error);
-      setLoading(false);
       return;
     }
 
     setPost(data as PostRow);
-    setLoading(false);
   }
 
   useEffect(() => {
