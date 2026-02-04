@@ -259,6 +259,8 @@ export default function RichTextEditor({
   if (active.bullet) value.push("bullet");
   if (active.link) value.push("link");
 
+  const editorCss = getEditorCss();
+
   function onToggle(next: string[]) {
     const prev = new Set(value);
     const now = new Set(next);
