@@ -158,7 +158,7 @@ export default function PostComments({ postId }: { postId: string }) {
                 </div>
 
                 <div
-                  className="prose prose-invert max-w-none text-sm"
+                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
                   dangerouslySetInnerHTML={{
                     __html: DOMPurify.sanitize(c.content_html),
                   }}

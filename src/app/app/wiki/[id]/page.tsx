@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { renderRichHtml } from "@/lib/render/richText";
+import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
 type Wiki = {
   id: string;
@@ -123,9 +124,16 @@ export default function WikiViewPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          <Card className="rounded-2xl">
-            <CardContent
-              className="prose prose-invert max-w-none p-4 text-sm"
+          <CardContent>
+            <div className="mb-3">
+              <HighlightButtonGroup
+                targetType="wiki"
+                targetId={row.id}
+                title={row.title}
+              />
+            </div>
+            <div
+              className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
               dangerouslySetInnerHTML={{
                 __html: renderRichHtml(wiki.content_html),
               }}

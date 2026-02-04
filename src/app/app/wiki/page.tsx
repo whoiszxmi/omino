@@ -4,12 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-type Folder = {
-  id: string;
-  name: string;
-  parent_id: string | null;
-};
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
 type Wiki = {
   id: string;
@@ -147,8 +144,15 @@ export default function WikiLibraryPage() {
               <CardHeader>
                 <CardTitle className="text-base">Nada por aqui ainda</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Crie sua primeira wiki clicando em <b>Nova</b>.
+              <CardContent
+                className="pt-0"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <HighlightButtonGroup
+                  targetType="wiki"
+                  targetId={r.id}
+                  title={r.title}
+                />
               </CardContent>
             </Card>
           ) : (

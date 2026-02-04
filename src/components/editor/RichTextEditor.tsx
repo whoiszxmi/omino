@@ -192,13 +192,70 @@ const EMPTY_ACTIVE: ActiveState = {
   canItalic: false,
   canUnderline: false,
   canBullet: false,
-
-  canInsertTable: false,
-  canAddRow: false,
-  canAddCol: false,
-  canToggleHeaderRow: false,
-  canDeleteTable: false,
 };
+
+function getEditorCss() {
+  return `
+    .ProseMirror {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .ProseMirror p,
+    .ProseMirror li,
+    .ProseMirror a,
+    .ProseMirror code,
+    .ProseMirror pre {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .ProseMirror img {
+      max-width: 100%;
+      display: block;
+      border-radius: 0.75rem;
+    }
+
+    .ProseMirror .tableWrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ProseMirror table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+      max-width: 100%;
+      background: var(--card);
+    }
+
+    .ProseMirror .tableWrapper table {
+      min-width: 520px;
+    }
+
+    .ProseMirror th,
+    .ProseMirror td {
+      border: 1px solid var(--border);
+      padding: 0.5rem;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      position: relative;
+    }
+
+    .ProseMirror th {
+      background: var(--muted);
+    }
+
+    .ProseMirror .selectedCell:after {
+      background: color-mix(in srgb, var(--primary) 30%, transparent);
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+  `;
+}
 
 export default function RichTextEditor({
   valueHtml,
@@ -244,8 +301,8 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class: cx(
-          "w-full focus:outline-none",
-          aminoStyle ? "amino-editor px-3 py-3 text-sm leading-relaxed" : "",
+          "w-full px-3 py-2 focus:outline-none",
+          "text-sm leading-relaxed",
           compact ? "min-h-[96px]" : "min-h-[160px]",
         ),
         "data-placeholder": placeholder,
@@ -389,50 +446,16 @@ export default function RichTextEditor({
     editor.chain().focus().setLink({ href: clean }).run();
   }
 
-  function insertTable2x2() {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
-      .run();
-  }
+  if (!editor) return null;
 
-  function addRowAfter() {
-    if (!editor) return;
-    editor.chain().focus().addRowAfter().run();
-  }
+  const value: string[] = [];
+  if (active.bold) value.push("bold");
+  if (active.italic) value.push("italic");
+  if (active.underline) value.push("underline");
+  if (active.bullet) value.push("bullet");
+  if (active.link) value.push("link");
 
-  function addColAfter() {
-    if (!editor) return;
-    editor.chain().focus().addColumnAfter().run();
-  }
-
-  function toggleHeaderRow() {
-    if (!editor) return;
-    editor.chain().focus().toggleHeaderRow().run();
-  }
-
-  function deleteTable() {
-    if (!editor) return;
-    editor.chain().focus().deleteTable().run();
-  }
-
-  const value = useMemo(() => {
-    const v: string[] = [];
-    if (active.bold) v.push("bold");
-    if (active.italic) v.push("italic");
-    if (active.underline) v.push("underline");
-    if (active.bullet) v.push("bullet");
-    if (active.link) v.push("link");
-    return v;
-  }, [
-    active.bold,
-    active.italic,
-    active.underline,
-    active.bullet,
-    active.link,
-  ]);
+  const editorCss = getEditorCss();
 
   function onToggle(next: string[]) {
     if (!editor) return;
@@ -468,16 +491,10 @@ export default function RichTextEditor({
 
   return (
     <div className="space-y-2">
-      {aminoStyle && <style>{getEditorCss()}</style>}
-
-      {/* toolbar (pills) */}
-      <div
-        className={cx(
-          "flex flex-wrap items-center gap-2",
-          aminoStyle &&
-            "sticky top-[52px] z-[5] rounded-2xl border bg-background/90 p-2 backdrop-blur",
-        )}
-      >
+      <style jsx global>
+        {getEditorCss()}
+      </style>
+      <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
           type="multiple"
           value={value}
@@ -653,17 +670,8 @@ export default function RichTextEditor({
         </div>
       </div>
 
-      {/* Caixa do editor */}
-      <div
-        className={cx(
-          aminoStyle && "rounded-2xl border bg-background overflow-hidden",
-        )}
-      >
+      <div className="rounded-2xl border bg-background overflow-hidden">
         <EditorContent editor={editor} />
-      </div>
-
-      <div className="text-[11px] text-muted-foreground">
-        Dica: use <b>Tag img</b> para controlar onde a imagem aparece no texto.
       </div>
     </div>
   );
