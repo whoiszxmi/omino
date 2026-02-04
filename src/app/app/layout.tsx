@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CreateChooser } from "@/components/app/CreateChooser";
+
 import {
   Dialog,
   DialogContent,
@@ -20,6 +22,7 @@ import {
   BookOpen,
   UsersRound,
   Plus,
+  UserRound,
   Settings,
 } from "lucide-react";
 
@@ -28,11 +31,12 @@ function cx(...classes: Array<string | false | null | undefined>) {
 }
 
 function isActive(pathname: string, href: string) {
-  if (href === "/app/feed") return pathname === "/app" || pathname.startsWith("/app/feed");
+  if (href === "/app/feed")
+    return pathname === "/app" || pathname.startsWith("/app/feed");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-type Action = { label: string; href: string } | null;
+type Action = { label: string; href: string; requiresPersona?: boolean } | null;
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/app";
@@ -40,20 +44,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const { loading, personas, activePersona, error, setActivePersona } =
     useActivePersona();
+
+  // modal criar (Post/Wiki)
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // modal trocar persona
   const [open, setOpen] = useState(false);
 
   const { title, action }: { title: string; action: Action } = useMemo(() => {
     if (pathname.startsWith("/app/feed")) {
-      return { title: "Feed", action: { label: "Novo", href: "/app/feed/new" } };
+      return {
+        title: "Feed",
+        action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
+      };
     }
     if (pathname.startsWith("/app/chats")) {
-      return { title: "Chat", action: null };
+      return { title: "Chats", action: null };
     }
     if (pathname.startsWith("/app/wiki/categories")) {
-      return { title: "Categorias", action: { label: "Nova", href: "/app/wiki/new" } };
+      return {
+        title: "Categorias",
+        action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
+      };
     }
     if (pathname.startsWith("/app/wiki")) {
-      return { title: "Wiki", action: { label: "Nova", href: "/app/wiki/new" } };
+      return {
+        title: "Wiki",
+        action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
+      };
     }
     if (pathname.startsWith("/app/personas")) {
       return { title: "Personas", action: null };
@@ -61,22 +79,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith("/app/profile")) {
       return { title: "Perfil", action: null };
     }
-    return { title: "Feed", action: { label: "Novo", href: "/app/feed/new" } };
+    return {
+      title: "Feed",
+      action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
+    };
   }, [pathname]);
 
   const navItems = useMemo(
     () => [
       { href: "/app/feed", label: "Feed", icon: Home },
-      { href: "/app/chats", label: "Chat", icon: MessageCircle },
+      { href: "/app/chats", label: "Chats", icon: MessageCircle },
       { href: "/app/wiki", label: "Wiki", icon: BookOpen },
       { href: "/app/personas", label: "Personas", icon: UsersRound },
+      { href: "/app/profile", label: "Perfil", icon: UserRound },
     ],
     [],
   );
 
-  const canUseAction =
-    !!activePersona &&
-    (action?.href === "/app/feed/new" || action?.href === "/app/wiki/new");
+  const canUseAction = !action?.requiresPersona || !!activePersona;
 
   return (
     <div className="min-h-dvh bg-background">
@@ -92,6 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
+              {/* Perfil (antes era Settings) */}
               <Button
                 variant="secondary"
                 size="icon"
@@ -99,20 +120,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => router.push("/app/profile")}
                 title="Perfil"
               >
-                <Settings className="h-4 w-4" />
+                <UserRound className="h-4 w-4" />
               </Button>
             </div>
 
             <div className="mt-3 rounded-2xl border p-3">
               <div className="text-xs text-muted-foreground">Persona ativa</div>
               <div className="mt-1 truncate text-sm font-medium">
-                {loading ? "Carregando..." : activePersona?.name ?? "Sem persona"}
+                {loading
+                  ? "Carregando..."
+                  : (activePersona?.name ?? "Sem persona")}
               </div>
 
               <div className="mt-3">
                 <Dialog open={open} onOpenChange={setOpen}>
                   <DialogTrigger asChild>
-                    <Button size="sm" variant="secondary" className="w-full rounded-2xl">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-full rounded-2xl"
+                    >
                       Trocar persona
                     </Button>
                   </DialogTrigger>
@@ -135,7 +162,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-medium">
-                                  {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                                  {p.name}{" "}
+                                  {activePersona?.id === p.id ? "• ativa" : ""}
                                 </div>
                                 {p.bio && (
                                   <div className="truncate text-xs text-muted-foreground">
@@ -147,7 +175,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                               <Button
                                 size="sm"
                                 className="rounded-2xl"
-                                variant={activePersona?.id === p.id ? "secondary" : "default"}
+                                variant={
+                                  activePersona?.id === p.id
+                                    ? "secondary"
+                                    : "default"
+                                }
                                 onClick={async () => {
                                   await setActivePersona(p.id);
                                   setOpen(false);
@@ -165,15 +197,35 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
+            {/* ✅ Botão principal Criar (abre Post/Wiki) */}
+            <div className="mt-3">
+              <Button
+                className="w-full rounded-2xl"
+                onClick={() => setCreateOpen(true)}
+                disabled={!activePersona}
+                title={!activePersona ? "Selecione uma persona" : "Criar"}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Criar
+              </Button>
+              {!activePersona && (
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  Selecione uma persona para postar/criar wiki.
+                </div>
+              )}
+            </div>
+
+            {/* Atalho contextual (mantém “Novo” quando fizer sentido) */}
             {action && (
-              <div className="mt-3">
+              <div className="mt-2">
                 <Button
+                  variant="secondary"
                   className="w-full rounded-2xl"
                   onClick={() => router.push(action.href)}
-                  disabled={!canUseAction && (action.href === "/app/feed/new" || action.href === "/app/wiki/new")}
+                  disabled={!canUseAction}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  {action.label}
+                  {action.label} ({title})
                 </Button>
               </div>
             )}
@@ -225,14 +277,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* ✅ botão + (abre chooser) */}
+                <Button
+                  size="sm"
+                  className="rounded-2xl"
+                  onClick={() => setCreateOpen(true)}
+                  disabled={!activePersona}
+                  title={!activePersona ? "Selecione uma persona" : "Criar"}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+
+                {/* Atalho contextual */}
                 {action && (
                   <Button
                     size="sm"
+                    variant="secondary"
                     className="rounded-2xl"
                     onClick={() => router.push(action.href)}
-                    disabled={!canUseAction && (action.href === "/app/feed/new" || action.href === "/app/wiki/new")}
+                    disabled={!canUseAction}
+                    title={`${action.label} em ${title}`}
                   >
-                    <Plus className="mr-1 h-4 w-4" />
                     {action.label}
                   </Button>
                 )}
@@ -241,7 +306,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="md:hidden">
                   <Dialog open={open} onOpenChange={setOpen}>
                     <DialogTrigger asChild>
-                      <Button size="sm" variant="secondary" className="rounded-2xl">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="rounded-2xl"
+                      >
                         Trocar
                       </Button>
                     </DialogTrigger>
@@ -264,7 +333,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                               <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-medium">
-                                    {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                                    {p.name}{" "}
+                                    {activePersona?.id === p.id
+                                      ? "• ativa"
+                                      : ""}
                                   </div>
                                   {p.bio && (
                                     <div className="truncate text-xs text-muted-foreground">
@@ -276,7 +348,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                 <Button
                                   size="sm"
                                   className="rounded-2xl"
-                                  variant={activePersona?.id === p.id ? "secondary" : "default"}
+                                  variant={
+                                    activePersona?.id === p.id
+                                      ? "secondary"
+                                      : "default"
+                                  }
                                   onClick={async () => {
                                     await setActivePersona(p.id);
                                     setOpen(false);
@@ -292,6 +368,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     </DialogContent>
                   </Dialog>
                 </div>
+
+                {/* Atalho para perfil (mobile) */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="rounded-2xl md:hidden"
+                  onClick={() => router.push("/app/profile")}
+                  title="Perfil"
+                >
+                  <UserRound className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </header>
@@ -303,7 +390,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Bottom nav (mobile) */}
           <nav className="sticky bottom-0 z-10 border-t bg-background/85 backdrop-blur md:hidden">
-            <div className="mx-auto grid max-w-md grid-cols-4 gap-1 px-2 py-2">
+            {/* 5 itens: fica mais intuitivo com perfil */}
+            <div className="mx-auto grid max-w-md grid-cols-5 gap-1 px-2 py-2">
               {navItems.map((item) => {
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
@@ -325,6 +413,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               })}
             </div>
           </nav>
+
+          {/* ✅ chooser global (Post/Wiki) */}
+          <CreateChooser open={createOpen} onOpenChange={setCreateOpen} />
         </div>
       </div>
     </div>

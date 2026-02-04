@@ -2,104 +2,136 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { renderRichHtml } from "@/lib/render/richText";
 
-type Row = {
+type Wiki = {
   id: string;
   title: string;
+  summary: string | null;
+  cover_url: string | null;
   content_html: string;
   created_at: string;
   updated_at: string;
-  category_id: string | null;
-  wiki_categories: { name: string } | null;
-  created_by_persona_id: string;
+  persona_id: string | null;
+  personas: { name: string; avatar_url: string | null } | null;
 };
 
 export default function WikiViewPage({ params }: { params: { id: string } }) {
-  const [row, setRow] = useState<Row | null>(null);
+  const wikiId = params.id;
+
   const [loading, setLoading] = useState(true);
+  const [wiki, setWiki] = useState<Wiki | null>(null);
 
   async function load() {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("wiki_pages")
+      .from("wikis")
       .select(
         `
         id,
         title,
+        summary,
+        cover_url,
         content_html,
         created_at,
         updated_at,
-        category_id,
-        created_by_persona_id,
-        wiki_categories ( name )
-      `
+        persona_id,
+        personas (
+          name,
+          avatar_url
+        )
+      `,
       )
-      .eq("id", params.id)
-      .single();
+      .eq("id", wikiId)
+      .maybeSingle();
 
+    if (error) console.error(error);
+
+    setWiki((data ?? null) as any);
     setLoading(false);
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    setRow(data as any);
   }
 
   useEffect(() => {
     load();
-  }, []);
+  }, [wikiId]);
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Wiki</h1>
-        <Button variant="secondary" className="rounded-2xl" onClick={() => (location.href = "/app/wiki")}>
+        <Button
+          variant="secondary"
+          className="rounded-2xl"
+          onClick={() => history.back()}
+        >
           Voltar
         </Button>
+
+        {wiki ? (
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => (location.href = `/app/wiki/edit/${wiki.id}`)}
+          >
+            Editar
+          </Button>
+        ) : null}
       </header>
 
       {loading ? (
         <div className="text-sm text-muted-foreground">Carregando...</div>
-      ) : !row ? (
+      ) : !wiki ? (
         <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Não encontrado</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Essa página não existe.
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            Wiki não encontrada.
           </CardContent>
         </Card>
       ) : (
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{row.title}</CardTitle>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {row.wiki_categories?.name && (
-                <span className="rounded-full border px-2 py-0.5">
-                  {row.wiki_categories.name}
-                </span>
-              )}
-              <span>
-                Atualizado: {new Date(row.updated_at).toLocaleString("pt-BR")}
-              </span>
+        <>
+          <div className="overflow-hidden rounded-2xl border">
+            <div className="aspect-[16/9] bg-muted">
+              {wiki.cover_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={wiki.cover_url}
+                  alt="cover"
+                  className="h-full w-full object-cover"
+                />
+              ) : null}
             </div>
-          </CardHeader>
 
-          <CardContent>
-            <div
-              className="prose prose-invert max-w-none text-sm"
+            <div className="p-4">
+              <div className="text-lg font-semibold">{wiki.title}</div>
+
+              {wiki.summary ? (
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {wiki.summary}
+                </div>
+              ) : null}
+
+              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  Atualizado:{" "}
+                  {new Date(wiki.updated_at).toLocaleString("pt-BR")}
+                </span>
+                {wiki.personas?.name ? (
+                  <span className="ml-auto">por {wiki.personas.name}</span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <Card className="rounded-2xl">
+            <CardContent
+              className="prose prose-invert max-w-none p-4 text-sm"
               dangerouslySetInnerHTML={{
-                __html: renderRichHtml(row.content_html),
+                __html: renderRichHtml(wiki.content_html),
               }}
             />
-          </CardContent>
-        </Card>
+          </Card>
+        </>
       )}
     </div>
   );

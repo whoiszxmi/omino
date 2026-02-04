@@ -68,9 +68,10 @@ export default function NewPostPage() {
           <RichTextEditor
             valueHtml={contentHtml}
             onChangeHtml={setContentHtml}
-            placeholder="Escreva seu post..."
+            placeholder="O que sua persona quer compartilhar?"
             folder="posts"
-            bucket="media"
+            imageInsertMode="both"
+            enableTables={false}
           />
 
           <Button

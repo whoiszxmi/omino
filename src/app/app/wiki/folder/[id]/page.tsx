@@ -20,9 +20,12 @@ type Wiki = {
   folder_id: string | null;
 };
 
-export default function WikiLibraryPage() {
+export default function WikiFolderPage({ params }: { params: { id: string } }) {
+  const folderId = params.id;
+
   const [loading, setLoading] = useState(true);
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folder, setFolder] = useState<Folder | null>(null);
+  const [subfolders, setSubfolders] = useState<Folder[]>([]);
   const [wikis, setWikis] = useState<Wiki[]>([]);
 
   async function load() {
@@ -36,11 +39,18 @@ export default function WikiLibraryPage() {
       return;
     }
 
-    const [fRes, wRes] = await Promise.all([
+    const [folderRes, subsRes, wRes] = await Promise.all([
+      supabase
+        .from("wiki_folders")
+        .select("id, name, parent_id")
+        .eq("id", folderId)
+        .maybeSingle(),
+
       supabase
         .from("wiki_folders")
         .select("id, name, parent_id")
         .eq("user_id", user.id)
+        .eq("parent_id", folderId)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
 
@@ -48,14 +58,17 @@ export default function WikiLibraryPage() {
         .from("wikis")
         .select("id, title, summary, cover_url, updated_at, folder_id")
         .eq("user_id", user.id)
+        .eq("folder_id", folderId)
         .order("updated_at", { ascending: false })
-        .limit(24),
+        .limit(50),
     ]);
 
-    if (fRes.error) console.error(fRes.error);
+    if (folderRes.error) console.error(folderRes.error);
+    if (subsRes.error) console.error(subsRes.error);
     if (wRes.error) console.error(wRes.error);
 
-    setFolders((fRes.data ?? []) as any);
+    setFolder((folderRes.data ?? null) as any);
+    setSubfolders((subsRes.data ?? []) as any);
     setWikis((wRes.data ?? []) as any);
 
     setLoading(false);
@@ -63,30 +76,29 @@ export default function WikiLibraryPage() {
 
   useEffect(() => {
     load();
-  }, []);
-
-  const rootFolders = useMemo(
-    () => folders.filter((f) => !f.parent_id),
-    [folders],
-  );
+  }, [folderId]);
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Wiki</h1>
-          <p className="text-xs text-muted-foreground">
-            Pastas e páginas da comunidade
-          </p>
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-semibold">
+            {folder?.name ?? "Pasta"}
+          </h1>
+          <p className="text-xs text-muted-foreground">Organização da Wiki</p>
         </div>
 
         <div className="flex gap-2">
-          <Button variant="secondary" className="rounded-2xl" onClick={load}>
-            Atualizar
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => history.back()}
+          >
+            Voltar
           </Button>
           <Button
             className="rounded-2xl"
-            onClick={() => (location.href = "/app/wiki/new")}
+            onClick={() => (location.href = `/app/wiki/new?folder=${folderId}`)}
           >
             Nova
           </Button>
@@ -97,58 +109,38 @@ export default function WikiLibraryPage() {
         <div className="text-sm text-muted-foreground">Carregando...</div>
       ) : (
         <>
-          {/* Pastas */}
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold">Pastas</div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="rounded-2xl"
-              onClick={() => (location.href = "/app/wiki/folders")}
-            >
-              Gerenciar
-            </Button>
-          </div>
-
-          {rootFolders.length === 0 ? (
-            <Card className="rounded-2xl">
-              <CardHeader>
-                <CardTitle className="text-base">Sem pastas</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Crie pastas para organizar sistemas, lore, personagens…
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {rootFolders.map((f) => (
-                <button
-                  key={f.id}
-                  className="rounded-2xl border bg-background p-3 text-left hover:bg-muted/30"
-                  onClick={() => (location.href = `/app/wiki/folder/${f.id}`)}
-                  type="button"
-                >
-                  <div className="text-sm font-medium line-clamp-2">
-                    {f.name}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Abrir pasta
-                  </div>
-                </button>
-              ))}
-            </div>
+          {subfolders.length > 0 && (
+            <>
+              <div className="text-sm font-semibold">Subpastas</div>
+              <div className="grid grid-cols-2 gap-3">
+                {subfolders.map((f) => (
+                  <button
+                    key={f.id}
+                    className="rounded-2xl border bg-background p-3 text-left hover:bg-muted/30"
+                    onClick={() => (location.href = `/app/wiki/folder/${f.id}`)}
+                    type="button"
+                  >
+                    <div className="text-sm font-medium line-clamp-2">
+                      {f.name}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Abrir
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
-          {/* Recentes */}
-          <div className="mt-2 text-sm font-semibold">Recentes</div>
+          <div className="text-sm font-semibold">Wikis</div>
 
           {wikis.length === 0 ? (
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle className="text-base">Nada por aqui ainda</CardTitle>
+                <CardTitle className="text-base">Sem wikis aqui</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">
-                Crie sua primeira wiki clicando em <b>Nova</b>.
+                Crie uma wiki nesta pasta clicando em <b>Nova</b>.
               </CardContent>
             </Card>
           ) : (

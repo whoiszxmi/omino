@@ -24,6 +24,14 @@ type PostRow = {
   personas: { name: string; avatar_url: string | null; user_id: string } | null;
 };
 
+type WikiCard = {
+  id: string;
+  title: string;
+  summary: string | null;
+  cover_url: string | null;
+  updated_at: string;
+};
+
 export default function ProfilePage() {
   const { activePersona } = useActivePersona();
 
@@ -34,6 +42,7 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<number>(0);
 
   const [posts, setPosts] = useState<PostRow[]>([]);
+  const [wikis, setWikis] = useState<WikiCard[]>([]);
 
   const activePersonaTag = useMemo(() => {
     if (!activePersona) return null;
@@ -45,7 +54,6 @@ export default function ProfilePage() {
   }, [activePersona]);
 
   async function ensureProfileRow(userId: string) {
-    // tenta buscar
     const { data, error } = await supabase
       .from("profiles")
       .select("id, username, display_name, bio, avatar_url, banner_url")
@@ -57,14 +65,10 @@ export default function ProfilePage() {
       return null;
     }
 
-    // se não existe (usuário criado antes do trigger), cria
     if (!data) {
       const { data: created, error: insErr } = await supabase
         .from("profiles")
-        .upsert(
-          { id: userId, username: null, display_name: null, bio: null },
-          { onConflict: "id" },
-        )
+        .upsert({ id: userId }, { onConflict: "id" })
         .select("id, username, display_name, bio, avatar_url, banner_url")
         .single();
 
@@ -81,19 +85,16 @@ export default function ProfilePage() {
   async function load() {
     setLoading(true);
 
-    // ✅ checa sessão/usuário
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) console.error("ERRO getUser:", userErr);
-
+    const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
+
     if (!user) {
       setLoading(false);
-      // manda pro login (ajuste essa rota se a sua for diferente)
       location.href = "/login";
       return;
     }
 
-    // ✅ garante que existe linha em profiles
+    // profile
     const profData = await ensureProfileRow(user.id);
     setProfile(profData);
 
@@ -112,7 +113,7 @@ export default function ProfilePage() {
     setFollowers(f1.count ?? 0);
     setFollowing(f2.count ?? 0);
 
-    // Posts do usuário (via join personas.user_id)
+    // posts do usuário (via join personas.user_id)
     const postsRes = await supabase
       .from("posts")
       .select(
@@ -130,10 +131,21 @@ export default function ProfilePage() {
       )
       .eq("personas.user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(30);
+      .limit(20);
 
     if (postsRes.error) console.error("ERRO posts:", postsRes.error);
     setPosts((postsRes.data ?? []) as any);
+
+    // ✅ wikis do usuário
+    const wikisRes = await supabase
+      .from("wikis")
+      .select("id, title, summary, cover_url, updated_at")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(12);
+
+    if (wikisRes.error) console.error("ERRO wikis:", wikisRes.error);
+    setWikis((wikisRes.data ?? []) as any);
 
     setLoading(false);
   }
@@ -201,7 +213,7 @@ export default function ProfilePage() {
                   </div>
                 ) : null}
 
-                {/* Persona ativa (tag explícita) */}
+                {/* Persona ativa */}
                 <div className="mt-3 rounded-2xl border bg-muted/30 p-3">
                   <div className="text-[11px] font-medium text-muted-foreground">
                     Persona ativa
@@ -283,6 +295,66 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* ✅ Wikis (quadrados como Amino) */}
+          <Card className="rounded-2xl">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Wikis</CardTitle>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="rounded-2xl"
+                onClick={() => (location.href = "/app/wiki")}
+              >
+                Abrir biblioteca
+              </Button>
+            </CardHeader>
+
+            <CardContent>
+              {wikis.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Você ainda não criou wikis.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {wikis.map((w) => (
+                    <button
+                      key={w.id}
+                      className="overflow-hidden rounded-2xl border bg-background text-left hover:bg-muted/30"
+                      onClick={() => (location.href = `/app/wiki/${w.id}`)}
+                      type="button"
+                    >
+                      <div className="aspect-square bg-muted">
+                        {w.cover_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={w.cover_url}
+                            alt="cover"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </div>
+                      <div className="p-2">
+                        <div className="line-clamp-1 text-sm font-medium">
+                          {w.title}
+                        </div>
+                        <div className="line-clamp-2 text-xs text-muted-foreground">
+                          {w.summary ?? "—"}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                className="mt-3 w-full rounded-2xl"
+                onClick={() => (location.href = "/app/wiki/new")}
+              >
+                Criar nova wiki
+              </Button>
+            </CardContent>
+          </Card>
 
           {/* Posts do usuário */}
           <Card className="rounded-2xl">

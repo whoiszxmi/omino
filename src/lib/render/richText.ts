@@ -1,16 +1,49 @@
 import DOMPurify from "isomorphic-dompurify";
 
-export function renderRichHtml(input: string) {
-  // 1) Converte tag movível [img:URL] -> <img>
-  const withTags = (input ?? "").replace(
-    /\[img:(https?:\/\/[^\]\s]+)\]/g,
+/**
+ * Converte tags estilo Amino:
+ *  - [img:https://...] => <img src="...">
+ * e sanitiza o HTML final.
+ */
+export function renderRichHtml(inputHtml: string) {
+  const raw = inputHtml || "";
+
+  // 1) converte [img:URL] em HTML
+  // aceita http/https e urls do supabase storage
+  const withImages = raw.replace(
+    /\[img:(https?:\/\/[^\]\s]+)\]/gim,
     (_m, url) =>
-      `<img src="${url}" alt="image" class="max-w-full h-auto rounded-xl" />`,
+      `<img src="${url}" alt="image" class="max-w-full h-auto rounded-xl border" />`,
   );
 
-  // 2) Sanitiza e garante que <img> e attrs necessários sejam preservados
-  return DOMPurify.sanitize(withTags, {
-    ADD_TAGS: ["img"],
-    ADD_ATTR: ["src", "alt", "title", "class"],
+  // 2) sanitiza (mantém tags úteis)
+  return DOMPurify.sanitize(withImages, {
+    ALLOWED_TAGS: [
+      "p",
+      "br",
+      "strong",
+      "em",
+      "u",
+      "s",
+      "a",
+      "ul",
+      "ol",
+      "li",
+      "blockquote",
+      "code",
+      "pre",
+      "h1",
+      "h2",
+      "h3",
+      "img",
+      "table",
+      "thead",
+      "tbody",
+      "tr",
+      "th",
+      "td",
+      "span",
+    ],
+    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "class"],
   });
 }
