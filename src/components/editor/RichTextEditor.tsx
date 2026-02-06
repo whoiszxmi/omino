@@ -49,8 +49,6 @@ type Props = {
 
   /**
    * Mostrar ferramentas de tabela (Wiki)
-   * - true: mostra botões de tabela
-   * - false: esconde (Post/Chat)
    */
   enableTables?: boolean;
 };
@@ -61,14 +59,14 @@ function cx(...classes: Array<string | false | null | undefined>) {
 
 function getEditorCss() {
   return `
+  /* editor root */
   .amino-editor {
     caret-color: hsl(var(--foreground));
-    /* evita vazamento */
     word-break: break-word;
     overflow-wrap: anywhere;
   }
 
-  /* garante que parágrafos e listas não vazem */
+  /* texto e blocos */
   .amino-editor p,
   .amino-editor li,
   .amino-editor blockquote,
@@ -86,7 +84,7 @@ function getEditorCss() {
     display: block;
   }
 
-  /* links/URLs longas */
+  /* links longos */
   .amino-editor a {
     color: hsl(var(--primary));
     text-decoration: underline;
@@ -94,18 +92,29 @@ function getEditorCss() {
     word-break: break-word;
   }
 
-  /* ======= TABELAS (VISÍVEIS E NÃO ESTOURAM) ======= */
-  /* container da tabela dentro do editor: força scroll horizontal se precisar */
+  /* ======= TABELAS ======= */
+  .amino-editor .tableWrapper {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .amino-editor table {
     width: 100%;
     max-width: 100%;
     border-collapse: collapse;
-    table-layout: fixed; /* impede colunas de estourar */
+    table-layout: fixed;
     margin: 10px 0;
     border: 1px solid hsl(var(--border));
     border-radius: 12px;
     overflow: hidden;
     background: hsl(var(--background));
+  }
+
+  /* em telas pequenas, a tabela pode ficar maior e rolar dentro do wrapper */
+  .amino-editor .tableWrapper table {
+    min-width: 520px;
   }
 
   .amino-editor th,
@@ -114,9 +123,9 @@ function getEditorCss() {
     padding: 8px 10px;
     vertical-align: top;
     font-size: 13px;
-    /* evita texto estourar dentro da célula */
     overflow-wrap: anywhere;
     word-break: break-word;
+    position: relative;
   }
 
   .amino-editor th {
@@ -124,7 +133,7 @@ function getEditorCss() {
     font-weight: 700;
   }
 
-  /* seleção de célula (pra editar ficar claro) */
+  /* seleção da célula */
   .amino-editor td.selectedCell::after,
   .amino-editor th.selectedCell::after {
     content: "";
@@ -134,20 +143,7 @@ function getEditorCss() {
     pointer-events: none;
   }
 
-  /* mostra um contorno quando a tabela está em foco */
-  .amino-editor .tableWrapper {
-    overflow-x: auto;
-    overflow-y: hidden;
-    max-width: 100%;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* evita que o wrapper da tabela empurre a tela */
-  .amino-editor .tableWrapper table {
-    min-width: 520px; /* deixa editável; scroll aparece em telas pequenas */
-  }
-
-  /* placeholder do tiptap */
+  /* placeholder tiptap */
   .amino-editor .is-empty::before {
     content: attr(data-placeholder);
     float: left;
@@ -192,70 +188,13 @@ const EMPTY_ACTIVE: ActiveState = {
   canItalic: false,
   canUnderline: false,
   canBullet: false,
+
+  canInsertTable: false,
+  canAddRow: false,
+  canAddCol: false,
+  canToggleHeaderRow: false,
+  canDeleteTable: false,
 };
-
-function getEditorCss() {
-  return `
-    .ProseMirror {
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
-
-    .ProseMirror p,
-    .ProseMirror li,
-    .ProseMirror a,
-    .ProseMirror code,
-    .ProseMirror pre {
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
-
-    .ProseMirror img {
-      max-width: 100%;
-      display: block;
-      border-radius: 0.75rem;
-    }
-
-    .ProseMirror .tableWrapper {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .ProseMirror table {
-      border-collapse: collapse;
-      table-layout: fixed;
-      width: 100%;
-      max-width: 100%;
-      background: var(--card);
-    }
-
-    .ProseMirror .tableWrapper table {
-      min-width: 520px;
-    }
-
-    .ProseMirror th,
-    .ProseMirror td {
-      border: 1px solid var(--border);
-      padding: 0.5rem;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      position: relative;
-    }
-
-    .ProseMirror th {
-      background: var(--muted);
-    }
-
-    .ProseMirror .selectedCell:after {
-      background: color-mix(in srgb, var(--primary) 30%, transparent);
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-  `;
-}
 
 export default function RichTextEditor({
   valueHtml,
@@ -271,6 +210,8 @@ export default function RichTextEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageModeRef = useRef<"inline" | "tag">("inline");
 
+  const editorCss = useMemo(() => getEditorCss(), []);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -284,7 +225,6 @@ export default function RichTextEditor({
         HTMLAttributes: { class: "max-w-full h-auto rounded-xl border" },
       }),
 
-      // ✅ TABELAS (para Wiki)
       ...(enableTables
         ? [
             Table.configure({ resizable: true }),
@@ -301,7 +241,7 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class: cx(
-          "w-full px-3 py-2 focus:outline-none",
+          "amino-editor w-full px-3 py-2 focus:outline-none",
           "text-sm leading-relaxed",
           compact ? "min-h-[96px]" : "min-h-[160px]",
         ),
@@ -309,7 +249,6 @@ export default function RichTextEditor({
       } as any,
       handleDOMEvents: {
         keydown: (_view, event) => {
-          if (!editor) return false;
           const e = event as KeyboardEvent;
 
           // Ctrl/Cmd + K (link)
@@ -318,8 +257,6 @@ export default function RichTextEditor({
             toggleLink();
             return true;
           }
-
-          // Enter em lista: padrão do starter kit já resolve
           return false;
         },
       },
@@ -340,6 +277,7 @@ export default function RichTextEditor({
         underline: ed.isActive("underline"),
         bullet: ed.isActive("bulletList"),
         link: ed.isActive("link"),
+
         inTable,
 
         canBold: ed.can().chain().focus().toggleBold().run(),
@@ -355,6 +293,7 @@ export default function RichTextEditor({
             .focus()
             .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
             .run(),
+
         canAddRow:
           enableTables &&
           inTable &&
@@ -437,6 +376,7 @@ export default function RichTextEditor({
     const previousUrl = editor.getAttributes("link")?.href as
       | string
       | undefined;
+
     const url = window.prompt("Cole o link:", previousUrl ?? "https://");
     if (!url) return;
 
@@ -444,6 +384,36 @@ export default function RichTextEditor({
     if (!clean) return;
 
     editor.chain().focus().setLink({ href: clean }).run();
+  }
+
+  // ===== Table actions (only used when enableTables) =====
+  function insertTable2x2() {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
+      .run();
+  }
+
+  function addRowAfter() {
+    if (!editor) return;
+    editor.chain().focus().addRowAfter().run();
+  }
+
+  function addColAfter() {
+    if (!editor) return;
+    editor.chain().focus().addColumnAfter().run();
+  }
+
+  function toggleHeaderRow() {
+    if (!editor) return;
+    editor.chain().focus().toggleHeaderRow().run();
+  }
+
+  function deleteTable() {
+    if (!editor) return;
+    editor.chain().focus().deleteTable().run();
   }
 
   if (!editor) return null;
@@ -455,11 +425,7 @@ export default function RichTextEditor({
   if (active.bullet) value.push("bullet");
   if (active.link) value.push("link");
 
-  const editorCss = getEditorCss();
-
   function onToggle(next: string[]) {
-    if (!editor) return;
-
     const prev = new Set(value);
     const now = new Set(next);
 
@@ -487,13 +453,13 @@ export default function RichTextEditor({
     }
   }
 
-  if (!editor) return null;
-
   return (
     <div className="space-y-2">
+      {/* ✅ styled-jsx precisa de string/identificador */}
       <style jsx global>
-        {getEditorCss()}
+        {editorCss}
       </style>
+
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
           type="multiple"
@@ -670,7 +636,13 @@ export default function RichTextEditor({
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-background overflow-hidden">
+      <div
+        className={cx(
+          aminoStyle
+            ? "rounded-2xl border bg-background overflow-hidden"
+            : "overflow-hidden",
+        )}
+      >
         <EditorContent editor={editor} />
       </div>
     </div>

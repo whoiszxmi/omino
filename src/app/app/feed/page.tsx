@@ -5,8 +5,22 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+
+// Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
+// (ex: "@/components/feed/PostComments")
 import PostComments from "@/app/app/feed/PostComments";
+
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
+
+import {
+  getCommunityHighlights,
+  type Highlight,
+  type HighlightTargetType,
+} from "@/lib/highlights/highlights";
+
+import { renderRichHtml } from "@/lib/render/richText";
 
 type Post = {
   id: string;
@@ -21,10 +35,12 @@ type Post = {
 
 export default function FeedPage() {
   const { activePersona } = useActivePersona();
+
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState<Post[]>([]);
+
   const [highlightsLoading, setHighlightsLoading] = useState(true);
-  const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [highlightFilter, setHighlightFilter] = useState<
     "all" | HighlightTargetType
   >("all");
@@ -41,15 +57,15 @@ export default function FeedPage() {
       .from("posts")
       .select(
         `
-        id,
-        content,
-        created_at,
-        persona_id,
-        personas (
-          name,
-          avatar_url
-        )
-      `,
+          id,
+          content,
+          created_at,
+          persona_id,
+          personas (
+            name,
+            avatar_url
+          )
+        `,
       )
       .order("created_at", { ascending: false })
       .limit(50);
@@ -82,14 +98,10 @@ export default function FeedPage() {
     setLoading(false);
   }
 
-  useEffect(() => {
-    loadPosts();
-    loadHighlights();
-  }, []);
-
   async function loadHighlights() {
     setHighlightsLoading(true);
 
+    // se não está logado, não mostra destaques (por enquanto)
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) {
       setHighlights([]);
@@ -98,37 +110,57 @@ export default function FeedPage() {
     }
 
     const data = await getCommunityHighlights();
-    const limited = data.slice(0, 8);
-    const missingWikiTitles = limited
+    const limited = (data ?? []).slice(0, 8);
+
+    // buscar títulos faltantes de wiki (se você salva title no highlight, isso quase não roda)
+    const missingWikiIds = limited
       .filter((item) => item.target_type === "wiki" && !item.title)
       .map((item) => item.target_id);
 
     let wikiTitles = new Map<string, string>();
-    if (missingWikiTitles.length > 0) {
-      const { data: wikiData } = await supabase
+
+    if (missingWikiIds.length > 0) {
+      // ⚠️ Ajuste o nome da tabela se no seu projeto for "wikis" ou outra.
+      const { data: wikiData, error: wikiErr } = await supabase
         .from("wiki_pages")
         .select("id, title")
-        .in("id", missingWikiTitles);
+        .in("id", missingWikiIds);
+
+      if (wikiErr) {
+        console.error("ERRO loadHighlights (wiki titles):", wikiErr);
+      }
 
       wikiTitles = new Map(
-        (wikiData ?? []).map((row) => [row.id, row.title]),
+        (wikiData ?? []).map((row: any) => [
+          row.id as string,
+          (row.title as string) ?? "Wiki",
+        ]),
       );
     }
 
-    const normalized = limited.map((item) => {
+    const normalized: Highlight[] = limited.map((item) => {
       if (item.title) return item;
+
       if (item.target_type === "wiki") {
         return {
           ...item,
           title: wikiTitles.get(item.target_id) ?? "Wiki",
         };
       }
+
+      // post sem título
       return { ...item, title: "Post" };
     });
 
     setHighlights(normalized);
     setHighlightsLoading(false);
   }
+
+  useEffect(() => {
+    loadPosts();
+    loadHighlights();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filteredHighlights =
     highlightFilter === "all"
@@ -149,10 +181,14 @@ export default function FeedPage() {
           <Button
             variant="secondary"
             className="rounded-2xl"
-            onClick={loadPosts}
+            onClick={() => {
+              loadPosts();
+              loadHighlights();
+            }}
           >
             Atualizar
           </Button>
+
           <Button
             className="rounded-2xl"
             onClick={() => (location.href = "/app/feed/new")}
@@ -163,110 +199,100 @@ export default function FeedPage() {
         </div>
       </header>
 
-      {loading ? (
-        <div className="text-sm text-muted-foreground">Carregando...</div>
-      ) : (
-        <>
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="text-base">Destaques da comunidade</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <ToggleGroup
-                type="single"
-                value={highlightFilter}
-                onValueChange={(value) =>
-                  setHighlightFilter(
-                    (value as "all" | HighlightTargetType) || "all",
-                  )
-                }
-                className="flex flex-wrap gap-2"
-              >
-                <ToggleGroupItem
-                  value="all"
-                  aria-label="Todos"
-                  className="rounded-2xl border"
-                >
-                  Todos
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="post"
-                  aria-label="Posts"
-                  className="rounded-2xl border"
-                >
-                  Posts
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="wiki"
-                  aria-label="Wikis"
-                  className="rounded-2xl border"
-                >
-                  Wikis
-                </ToggleGroupItem>
-              </ToggleGroup>
+      {/* Destaques */}
+      {!loading && (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">Destaques da comunidade</CardTitle>
+          </CardHeader>
 
-              {highlightsLoading ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={index}
-                      className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
-                    />
-                  ))}
-                </div>
-              ) : filteredHighlights.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Nenhum destaque ainda.
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {filteredHighlights.map((item) => {
-                    const isWiki = item.target_type === "wiki";
-                    const title =
-                      item.title ?? (isWiki ? "Wiki" : "Post");
+          <CardContent className="space-y-3">
+            <ToggleGroup
+              type="single"
+              value={highlightFilter}
+              onValueChange={(value) =>
+                setHighlightFilter(
+                  (value as "all" | HighlightTargetType) || "all",
+                )
+              }
+              className="flex flex-wrap gap-2"
+            >
+              <ToggleGroupItem value="all" className="rounded-2xl border">
+                Todos
+              </ToggleGroupItem>
+              <ToggleGroupItem value="post" className="rounded-2xl border">
+                Posts
+              </ToggleGroupItem>
+              <ToggleGroupItem value="wiki" className="rounded-2xl border">
+                Wikis
+              </ToggleGroupItem>
+            </ToggleGroup>
 
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
-                        onClick={() => {
-                          location.href = isWiki
-                            ? `/app/wiki/${item.target_id}`
-                            : `/app/post/${item.target_id}`;
-                        }}
-                      >
-                        <div className="flex h-full flex-col">
-                          <div className="flex-1 bg-muted/40">
-                            {item.cover_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={item.cover_url}
-                                alt={title}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="space-y-2 p-3">
-                            <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                              {isWiki ? "Wiki" : "Post"}
-                            </span>
-                            <div className="truncate text-sm font-medium">
-                              {title}
-                            </div>
+            {highlightsLoading ? (
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="aspect-square animate-pulse rounded-2xl border bg-muted/40"
+                  />
+                ))}
+              </div>
+            ) : filteredHighlights.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                Nenhum destaque ainda.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {filteredHighlights.map((item) => {
+                  const isWiki = item.target_type === "wiki";
+                  const title = item.title ?? (isWiki ? "Wiki" : "Post");
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                      onClick={() => {
+                        location.href = isWiki
+                          ? `/app/wiki/${item.target_id}`
+                          : `/app/post/${item.target_id}`;
+                      }}
+                    >
+                      <div className="flex h-full flex-col">
+                        <div className="flex-1 bg-muted/40">
+                          {item.cover_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={item.cover_url}
+                              alt={title}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-2 p-3">
+                          <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                            {isWiki ? "Wiki" : "Post"}
+                          </span>
+
+                          <div className="truncate text-sm font-medium">
+                            {title}
                           </div>
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {!loading && posts.length === 0 ? (
+      {/* Lista de posts */}
+      {loading ? (
+        <div className="text-sm text-muted-foreground">Carregando...</div>
+      ) : posts.length === 0 ? (
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle className="text-base">Nada por aqui ainda</CardTitle>
@@ -280,7 +306,7 @@ export default function FeedPage() {
           {posts.map((p) => (
             <Card
               key={p.id}
-              className="rounded-2xl cursor-pointer"
+              className="cursor-pointer rounded-2xl"
               onClick={() => (location.href = `/app/post/${p.id}`)}
             >
               <CardHeader className="pb-2">
@@ -296,15 +322,19 @@ export default function FeedPage() {
                   dangerouslySetInnerHTML={{
                     __html: renderRichHtml(p.content),
                   }}
+                  onClick={(e) => e.stopPropagation()}
                 />
 
-                <HighlightButtonGroup
-                  targetType="post"
-                  targetId={p.id}
-                  title={`Post de ${p.persona.name}`}
-                />
+                {/* ✅ Botões de destaque (não deve navegar ao clicar) */}
+                <div onClick={(e) => e.stopPropagation()}>
+                  <HighlightButtonGroup
+                    targetType="post"
+                    targetId={p.id}
+                    title={`Post de ${p.persona.name}`}
+                  />
+                </div>
 
-                {/* ✅ comentários do post */}
+                {/* ✅ comentários do post (não deve navegar ao clicar) */}
                 <div onClick={(event) => event.stopPropagation()}>
                   <PostComments postId={p.id} />
                 </div>

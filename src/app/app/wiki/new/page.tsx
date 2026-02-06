@@ -10,58 +10,94 @@ import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import { useSearchParams } from "next/navigation";
 
-type Folder = { id: string; name: string; parent_id: string | null };
+type Category = { id: string; name: string; parent_id: string | null };
+
+function indentLabel(name: string, depth: number) {
+  if (depth <= 0) return name;
+  return `${"— ".repeat(depth)}${name}`;
+}
 
 export default function NewWikiPage() {
   const { activePersona } = useActivePersona();
+  const search = useSearchParams();
 
   const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
   const [contentHtml, setContentHtml] = useState<string>("");
 
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [folderId, setFolderId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [saving, setSaving] = useState(false);
 
-  const canPublish = useMemo(() => {
-    return !!title.trim() && !!contentHtml.trim();
-  }, [title, contentHtml]);
-
-  const search = useSearchParams();
-
+  // pega categoria da URL: /app/wiki/new?category=UUID
   useEffect(() => {
-    const f = search.get("folder");
-    if (f) setFolderId(f);
+    const c = search.get("category");
+    if (c) setCategoryId(c);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadFolders() {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-    if (!user) return;
+  const canPublish = useMemo(() => {
+    const t = title.trim();
+    const html = contentHtml.trim();
 
+    const sanitized = html
+      .replace(/<p>\s*<\/p>/g, "")
+      .replace(/<p><br><\/p>/g, "")
+      .trim();
+
+    return !!t && !!sanitized && !!activePersona;
+  }, [title, contentHtml, activePersona]);
+
+  async function loadCategories() {
     const { data, error } = await supabase
-      .from("wiki_folders")
-      .select("id, name, parent_id")
-      .eq("user_id", user.id)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+      .from("wiki_categories")
+      .select("id,name,parent_id")
+      .order("name", { ascending: true });
 
     if (error) {
-      console.error(error);
+      console.error("ERRO loadCategories:", error);
       return;
     }
 
-    setFolders((data ?? []) as any);
+    setCategories((data ?? []) as any);
   }
 
   useEffect(() => {
-    loadFolders();
+    loadCategories();
   }, []);
+
+  // monta lista com indent (pai -> filhos)
+  const categoryOptions = useMemo(() => {
+    const byParent = new Map<string | null, Category[]>();
+    for (const c of categories) {
+      const key = c.parent_id ?? null;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(c);
+    }
+
+    // ordena dentro de cada grupo
+    for (const [k, arr] of byParent.entries()) {
+      byParent.set(
+        k,
+        arr.slice().sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    }
+
+    const out: Array<{ id: string; label: string }> = [];
+    function walk(parent: string | null, depth: number) {
+      const children = byParent.get(parent) ?? [];
+      for (const child of children) {
+        out.push({ id: child.id, label: indentLabel(child.name, depth) });
+        walk(child.id, depth + 1);
+      }
+    }
+
+    walk(null, 0);
+    return out;
+  }, [categories]);
 
   async function uploadCover(file: File) {
     const { data: userData } = await supabase.auth.getUser();
@@ -104,48 +140,41 @@ export default function NewWikiPage() {
 
   async function createWiki() {
     const t = title.trim();
-    const s = summary.trim();
+    const html = contentHtml.trim();
 
-    if (!t) {
-      toast.error("Título é obrigatório.");
-      return;
-    }
+    const sanitized = html
+      .replace(/<p>\s*<\/p>/g, "")
+      .replace(/<p><br><\/p>/g, "")
+      .trim();
 
-    if (!contentHtml.trim()) {
-      toast.error("Escreva o conteúdo da wiki.");
-      return;
-    }
-
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-    if (!user) {
-      toast.error("Faça login novamente.");
-      return;
-    }
+    if (!activePersona) return toast.error("Selecione uma persona.");
+    if (!t) return toast.error("Título é obrigatório.");
+    if (!sanitized) return toast.error("Escreva o conteúdo da wiki.");
 
     setSaving(true);
 
-    const { error } = await supabase.from("wikis").insert({
-      user_id: user.id,
-      persona_id: activePersona?.id ?? null,
-      folder_id: folderId,
-      title: t,
-      summary: s || null,
-      cover_url: coverUrl,
-      content_html: contentHtml,
-      is_published: true,
-    });
+    const { data, error } = await supabase
+      .from("wiki_pages")
+      .insert({
+        created_by_persona_id: activePersona.id,
+        category_id: categoryId,
+        title: t,
+        cover_url: coverUrl,
+        content_html: sanitized,
+      })
+      .select("id")
+      .single();
 
     setSaving(false);
 
     if (error) {
-      console.error(error);
+      console.error("ERRO createWiki:", error);
       toast.error(error.message);
       return;
     }
 
     toast.success("Wiki criada!");
-    location.href = "/app/wiki";
+    location.href = data?.id ? `/app/wiki/${data.id}` : "/app/wiki";
   }
 
   return (
@@ -167,6 +196,7 @@ export default function NewWikiPage() {
             Criando como: {activePersona?.name ?? "—"}
           </CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-3">
           {/* Capa */}
           <div className="space-y-2">
@@ -230,19 +260,7 @@ export default function NewWikiPage() {
             />
           </div>
 
-          {/* Resumo */}
-          <div className="space-y-1">
-            <div className="text-xs text-muted-foreground">
-              Resumo (opcional)
-            </div>
-            <Input
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              placeholder="Uma descrição curta para aparecer na lista."
-            />
-          </div>
-
-          {/* Pasta */}
+          {/* Categoria */}
           <div className="space-y-1">
             <div className="text-xs text-muted-foreground">
               Pasta (opcional)
@@ -250,14 +268,13 @@ export default function NewWikiPage() {
 
             <select
               className="w-full rounded-2xl border bg-background px-3 py-2 text-sm"
-              value={folderId ?? ""}
-              onChange={(e) => setFolderId(e.target.value || null)}
+              value={categoryId ?? ""}
+              onChange={(e) => setCategoryId(e.target.value || null)}
             >
               <option value="">Sem pasta</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.parent_id ? "↳ " : ""}
-                  {f.name}
+              {categoryOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
                 </option>
               ))}
             </select>
@@ -266,7 +283,8 @@ export default function NewWikiPage() {
               type="button"
               variant="secondary"
               className="rounded-2xl"
-              onClick={() => (location.href = "/app/wiki/folders")}
+              onClick={() => (location.href = "/app/wiki")}
+              title="Crie/organize pastas na tela da Wiki"
             >
               Gerenciar pastas
             </Button>

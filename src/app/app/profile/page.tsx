@@ -5,12 +5,12 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { renderRichHtml } from "@/lib/render/richText";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-import {
-  getMyHighlights,
-  type HighlightRow,
-} from "@/lib/highlights/highlights";
+import { getMyHighlights, type Highlight } from "@/lib/highlights/highlights";
+import ProfileWikisGrid from "@/components/profile/ProfileWikisGrid";
+import { CreateChooser } from "@/components/app/CreateChooser";
 
 type Profile = {
   id: string;
@@ -29,14 +29,6 @@ type PostRow = {
   personas: { name: string; avatar_url: string | null; user_id: string } | null;
 };
 
-type WikiCard = {
-  id: string;
-  title: string;
-  summary: string | null;
-  cover_url: string | null;
-  updated_at: string;
-};
-
 export default function ProfilePage() {
   const { activePersona } = useActivePersona();
 
@@ -47,9 +39,11 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<number>(0);
 
   const [posts, setPosts] = useState<PostRow[]>([]);
-  const [wikis, setWikis] = useState<WikiCard[]>([]);
-  const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [highlightsLoading, setHighlightsLoading] = useState(true);
+
+  const [tab, setTab] = useState<"posts" | "wikis" | "highlights">("posts");
+  const [createOpen, setCreateOpen] = useState(false);
 
   function handleHighlightToggle(
     scope: "profile" | "community",
@@ -77,7 +71,7 @@ export default function ProfilePage() {
       return;
     }
 
-    const newRow: HighlightRow = {
+    const newRow: Highlight = {
       id: crypto.randomUUID(),
       scope: "profile",
       user_id: "me",
@@ -192,17 +186,7 @@ export default function ProfilePage() {
     if (postsRes.error) console.error("ERRO posts:", postsRes.error);
     setPosts((postsRes.data ?? []) as any);
 
-    // ✅ wikis do usuário
-    const wikisRes = await supabase
-      .from("wikis")
-      .select("id, title, summary, cover_url, updated_at")
-      .eq("user_id", user.id)
-      .order("updated_at", { ascending: false })
-      .limit(12);
-
-    if (wikisRes.error) console.error("ERRO wikis:", wikisRes.error);
-    setWikis((wikisRes.data ?? []) as any);
-
+    // highlights
     setHighlightsLoading(true);
     const highlightRows = await getMyHighlights("profile");
     setHighlights(highlightRows);
@@ -214,6 +198,8 @@ export default function ProfilePage() {
   useEffect(() => {
     load();
   }, []);
+
+  const canCreate = !!activePersona;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
@@ -235,6 +221,37 @@ export default function ProfilePage() {
         </Card>
       ) : (
         <>
+          {/* Header do perfil + criar */}
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-lg font-semibold">Seu perfil</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {activePersona ? `Ativo: ${activePersona.name}` : "Sem persona"}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="rounded-2xl"
+                onClick={() => (location.href = "/app/profile/edit")}
+              >
+                Editar
+              </Button>
+
+              <Button
+                className="rounded-2xl"
+                onClick={() => setCreateOpen(true)}
+                disabled={!canCreate}
+                title={
+                  !canCreate ? "Selecione uma persona para criar" : "Criar"
+                }
+              >
+                Criar
+              </Button>
+            </div>
+          </div>
+
           {/* Banner + avatar */}
           <div className="overflow-hidden rounded-2xl border">
             <div className="relative h-28 bg-muted">
@@ -274,7 +291,7 @@ export default function ProfilePage() {
                   </div>
                 ) : null}
 
-                {/* Persona ativa */}
+                {/* Persona ativa bem explícita */}
                 <div className="mt-3 rounded-2xl border bg-muted/30 p-3">
                   <div className="text-[11px] font-medium text-muted-foreground">
                     Persona ativa
@@ -326,202 +343,180 @@ export default function ProfilePage() {
                   )}
                 </div>
 
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    variant="secondary"
-                    className="rounded-2xl"
-                    onClick={() => (location.href = "/app/profile/edit")}
+                <div className="mt-3 flex items-center gap-2 text-xs">
+                  <button
+                    className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
+                    onClick={() => (location.href = "/app/profile/followers")}
+                    type="button"
                   >
-                    Editar perfil
-                  </Button>
+                    <b className="text-foreground">{followers}</b> seguidores
+                  </button>
 
-                  <div className="ml-auto flex items-center gap-2 text-xs">
-                    <button
-                      className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                      onClick={() => (location.href = "/app/profile/followers")}
-                      type="button"
-                    >
-                      <b className="text-foreground">{followers}</b> seguidores
-                    </button>
-
-                    <button
-                      className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                      onClick={() => (location.href = "/app/profile/following")}
-                      type="button"
-                    >
-                      <b className="text-foreground">{following}</b> seguindo
-                    </button>
-                  </div>
+                  <button
+                    className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
+                    onClick={() => (location.href = "/app/profile/following")}
+                    type="button"
+                  >
+                    <b className="text-foreground">{following}</b> seguindo
+                  </button>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ✅ Wikis (quadrados como Amino) */}
+          {/* Abas (Amino-like) */}
           <Card className="rounded-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Wikis</CardTitle>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="rounded-2xl"
-                onClick={() => (location.href = "/app/wiki")}
+            <CardContent className="p-3">
+              <ToggleGroup
+                type="single"
+                value={tab}
+                onValueChange={(v) => setTab((v as any) || "posts")}
+                className="flex flex-wrap gap-2"
               >
-                Abrir biblioteca
-              </Button>
-            </CardHeader>
-
-            <CardContent>
-              {wikis.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Você ainda não criou wikis.
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {wikis.map((w) => (
-                    <button
-                      key={w.id}
-                      className="overflow-hidden rounded-2xl border bg-background text-left hover:bg-muted/30"
-                      onClick={() => (location.href = `/app/wiki/${w.id}`)}
-                      type="button"
-                    >
-                      <div className="aspect-square bg-muted">
-                        {w.cover_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={w.cover_url}
-                            alt="cover"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : null}
-                      </div>
-                      <div className="p-2">
-                        <div className="line-clamp-1 text-sm font-medium">
-                          {w.title}
-                        </div>
-                        <div className="line-clamp-2 text-xs text-muted-foreground">
-                          {w.summary ?? "—"}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <Button
-                className="mt-3 w-full rounded-2xl"
-                onClick={() => (location.href = "/app/wiki/new")}
-              >
-                Criar nova wiki
-              </Button>
+                <ToggleGroupItem value="posts" className="rounded-2xl border">
+                  Posts
+                </ToggleGroupItem>
+                <ToggleGroupItem value="wikis" className="rounded-2xl border">
+                  Wikis
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="highlights"
+                  className="rounded-2xl border"
+                >
+                  Destaques
+                </ToggleGroupItem>
+              </ToggleGroup>
             </CardContent>
           </Card>
 
-          {/* Posts do usuário */}
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="text-base">Destaques</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {highlightsLoading ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={index}
-                      className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
-                    />
-                  ))}
-                </div>
-              ) : highlights.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Você ainda não adicionou destaques.
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {highlights.map((item) => {
-                    const isWiki = item.target_type === "wiki";
-                    const title = item.title ?? (isWiki ? "Wiki" : "Post");
+          {/* Conteúdo da aba */}
+          {tab === "wikis" ? (
+            <ProfileWikisGrid personaId={activePersona?.id ?? null} />
+          ) : tab === "highlights" ? (
+            <Card className="rounded-2xl">
+              <CardHeader>
+                <CardTitle className="text-base">Destaques</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {highlightsLoading ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
+                      />
+                    ))}
+                  </div>
+                ) : highlights.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">
+                    Você ainda não adicionou destaques.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {highlights.map((item) => {
+                      const isWiki = item.target_type === "wiki";
+                      const title = item.title ?? (isWiki ? "Wiki" : "Post");
 
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
-                        onClick={() => {
-                          location.href = isWiki
-                            ? `/app/wiki/${item.target_id}`
-                            : `/app/post/${item.target_id}`;
-                        }}
-                      >
-                        <div className="flex h-full flex-col">
-                          <div className="flex-1 bg-muted/40">
-                            {item.cover_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={item.cover_url}
-                                alt={title}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="space-y-2 p-3">
-                            <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                              {isWiki ? "Wiki" : "Post"}
-                            </span>
-                            <div className="truncate text-sm font-medium">
-                              {title}
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                          onClick={() => {
+                            location.href = isWiki
+                              ? `/app/wiki/${item.target_id}`
+                              : `/app/post/${item.target_id}`;
+                          }}
+                        >
+                          <div className="flex h-full flex-col">
+                            <div className="flex-1 bg-muted/40">
+                              {item.cover_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.cover_url}
+                                  alt={title}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : null}
+                            </div>
+                            <div className="space-y-2 p-3">
+                              <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                                {isWiki ? "Wiki" : "Post"}
+                              </span>
+                              <div className="truncate text-sm font-medium">
+                                {title}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Posts do usuário */}
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="text-base">Seus posts</CardTitle>
-            </CardHeader>
-
-            <CardContent className="space-y-3">
-              {posts.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Você ainda não postou nada.
-                </div>
-              ) : (
-                posts.map((p) => (
-                  <div key={p.id} className="rounded-2xl border p-3">
-                    <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                      <span className="truncate">
-                        {p.personas?.name ?? "Persona"} •{" "}
-                        {new Date(p.created_at).toLocaleString("pt-BR")}
-                      </span>
-                    </div>
-
-                    <div
-                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                      dangerouslySetInnerHTML={{
-                        __html: renderRichHtml(p.content),
-                      }}
-                    />
-
-                    <div className="mt-3">
-                      <HighlightButtonGroup
-                        targetType="post"
-                        targetId={p.id}
-                        title={`Post de ${p.personas?.name ?? "Persona"}`}
-                        onToggle={handleHighlightToggle}
-                      />
-                    </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="rounded-2xl">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-base">Seus posts</CardTitle>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="rounded-2xl"
+                  onClick={() => (location.href = "/app/feed/new")}
+                  disabled={!activePersona}
+                >
+                  Novo
+                </Button>
+              </CardHeader>
+
+              <CardContent className="space-y-3">
+                {posts.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">
+                    Você ainda não postou nada.
+                  </div>
+                ) : (
+                  posts.map((p) => (
+                    <div key={p.id} className="rounded-2xl border p-3">
+                      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span className="truncate">
+                          {p.personas?.name ?? "Persona"} •{" "}
+                          {new Date(p.created_at).toLocaleString("pt-BR")}
+                        </span>
+
+                        <button
+                          className="rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted/60"
+                          type="button"
+                          onClick={() => (location.href = `/app/post/${p.id}`)}
+                        >
+                          Abrir
+                        </button>
+                      </div>
+
+                      <div
+                        className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
+                        dangerouslySetInnerHTML={{
+                          __html: renderRichHtml(p.content),
+                        }}
+                      />
+
+                      <div className="mt-3">
+                        <HighlightButtonGroup
+                          targetType="post"
+                          targetId={p.id}
+                          title={`Post de ${p.personas?.name ?? "Persona"}`}
+                          onToggle={handleHighlightToggle}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CreateChooser (Post ou Wiki) */}
+          <CreateChooser open={createOpen} onOpenChange={setCreateOpen} />
         </>
       )}
     </div>

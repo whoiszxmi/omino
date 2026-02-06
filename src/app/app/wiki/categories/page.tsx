@@ -1,91 +1,189 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { ChevronRight, FolderPlus, RefreshCw } from "lucide-react";
 
-type Category = { id: string; name: string; created_at: string };
+type Category = {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+};
+
+type Wiki = {
+  id: string;
+  category_id: string | null;
+};
 
 export default function WikiCategoriesPage() {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState<Category[]>([]);
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [wikis, setWikis] = useState<Wiki[]>([]);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function load() {
-    const { data, error } = await supabase
-      .from("wiki_categories")
-      .select("id, name, created_at")
-      .order("name", { ascending: true });
+    setLoading(true);
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message);
+    const [catRes, wikiRes] = await Promise.all([
+      supabase
+        .from("wiki_categories")
+        .select("id,name,parent_id,created_at")
+        .order("name", { ascending: true }),
+      supabase.from("wiki_pages").select("id,category_id").limit(1000),
+    ]);
+
+    if (catRes.error) {
+      console.error("ERRO load categories:", catRes.error);
+      toast.error(catRes.error.message);
+      setLoading(false);
       return;
     }
+    if (wikiRes.error) {
+      console.error("ERRO load wikis:", wikiRes.error);
+      // wikis é só pra contagem; não precisa travar a tela
+    }
 
-    setCats((data ?? []) as any);
+    setCats((catRes.data ?? []) as any);
+    setWikis((wikiRes.data ?? []) as any);
+    setLoading(false);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  async function create() {
-    const n = name.trim();
-    if (!n) return;
+  const rootCats = useMemo(() => cats.filter((c) => !c.parent_id), [cats]);
 
-    setSaving(true);
-    const { error } = await supabase.from("wiki_categories").insert({ name: n });
-    setSaving(false);
-
-    if (error) {
-      console.error(error);
-      toast.error(error.message);
-      return;
+  const countByCat = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const w of wikis) {
+      if (!w.category_id) continue;
+      map[w.category_id] = (map[w.category_id] ?? 0) + 1;
     }
+    return map;
+  }, [wikis]);
 
-    setName("");
-    toast.success("Categoria criada!");
-    load();
+  async function createRootCategory() {
+    const name = newName.trim();
+    if (!name) return;
+
+    setCreating(true);
+    try {
+      const { error } = await supabase
+        .from("wiki_categories")
+        .insert({ name, parent_id: null } as any);
+
+      if (error) throw error;
+
+      toast.success("Pasta criada!");
+      setNewName("");
+      await load();
+    } catch (e: any) {
+      console.error("ERRO create category:", e);
+      toast.error(e?.message ?? "Erro ao criar pasta.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Categorias</h1>
-        <Button variant="secondary" className="rounded-2xl" onClick={() => (location.href = "/app/wiki")}>
-          Voltar
-        </Button>
+      <header className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold">Pastas</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            Organize suas wikis em categorias
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={load}
+            title="Atualizar"
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Atualizar
+          </Button>
+
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push("/app/wiki")}
+          >
+            Voltar
+          </Button>
+        </div>
       </header>
 
       <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Nova categoria</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Criar pasta raiz</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input placeholder="Ex: Personagens, Itens, Regras..." value={name} onChange={(e) => setName(e.target.value)} />
-          <Button className="w-full rounded-2xl" onClick={create} disabled={saving || !name.trim()}>
-            {saving ? "Criando..." : "Criar"}
-          </Button>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ex: Sistemas, Personagens..."
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <Button
+              className="rounded-2xl"
+              onClick={createRootCategory}
+              disabled={creating || !newName.trim()}
+            >
+              <FolderPlus className="mr-2 h-4 w-4" />
+              Criar
+            </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            Dica: subpastas são criadas dentro de uma pasta (ao abrir).
+          </div>
         </CardContent>
       </Card>
 
       <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Lista</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Pastas raiz</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {cats.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Nenhuma categoria ainda.</div>
+        <CardContent>
+          {loading ? (
+            <div className="text-sm text-muted-foreground">Carregando...</div>
+          ) : rootCats.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              Nenhuma pasta ainda.
+            </div>
           ) : (
-            cats.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-2xl border px-3 py-2">
-                <div className="text-sm">{c.name}</div>
-              </div>
-            ))
+            <div className="space-y-2">
+              {rootCats.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-2xl border p-3 text-left hover:bg-muted/30"
+                  onClick={() => router.push(`/app/wiki/categories/${c.id}`)}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{c.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {countByCat[c.id] ?? 0} wikis
+                    </div>
+                  </div>
+
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

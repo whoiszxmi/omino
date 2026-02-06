@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase/client";
 export type HighlightScope = "profile" | "community";
 export type HighlightTargetType = "post" | "wiki";
 
-export type HighlightRow = {
+export type Highlight = {
   id: string;
   scope: HighlightScope;
   user_id: string;
@@ -15,65 +15,61 @@ export type HighlightRow = {
   created_at: string;
 };
 
-type TogglePayload = {
-  targetType: HighlightTargetType;
-  targetId: string;
-  title?: string;
-  coverUrl?: string | null;
+type GetOpts = {
+  type?: HighlightTargetType;
+  limit?: number;
 };
+
+export async function getCommunityHighlights(opts: GetOpts = {}) {
+  let q = supabase
+    .from("highlights")
+    .select(
+      "id, scope, user_id, target_type, target_id, title, cover_url, sort_order, created_at",
+    )
+    .eq("scope", "community")
+    .order("sort_order", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (opts.type) q = q.eq("target_type", opts.type);
+  if (opts.limit) q = q.limit(opts.limit);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("ERRO getCommunityHighlights:", error);
+    return [];
+  }
+  return (data ?? []) as Highlight[];
+}
 
 export async function getMyHighlights(
   scope: HighlightScope,
-  targetType?: HighlightTargetType,
+  opts: GetOpts = {},
 ) {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user) return [] as HighlightRow[];
+  const { data: u } = await supabase.auth.getUser();
+  const user = u.user;
+  if (!user) return [];
 
-  let query = supabase
+  let q = supabase
     .from("highlights")
     .select(
       "id, scope, user_id, target_type, target_id, title, cover_url, sort_order, created_at",
     )
     .eq("scope", scope)
     .eq("user_id", user.id)
-    .order("sort_order", { ascending: true })
+    // ordem “Amino”: primeiro sort_order (se você usar), depois mais recentes
+    .order("sort_order", { ascending: false })
     .order("created_at", { ascending: false });
 
-  if (targetType) {
-    query = query.eq("target_type", targetType);
-  }
+  if (opts.type) q = q.eq("target_type", opts.type);
+  if (opts.limit) q = q.limit(opts.limit);
 
-  const { data, error } = await query;
+  const { data, error } = await q;
   if (error) {
-    console.error("Erro ao carregar highlights:", error);
-    return [] as HighlightRow[];
+    console.error("ERRO getMyHighlights:", error);
+    return [];
   }
 
-  return (data ?? []) as HighlightRow[];
-}
-
-export async function getCommunityHighlights(targetType?: HighlightTargetType) {
-  let query = supabase
-    .from("highlights")
-    .select(
-      "id, scope, user_id, target_type, target_id, title, cover_url, sort_order, created_at",
-    )
-    .eq("scope", "community")
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: false });
-
-  if (targetType) {
-    query = query.eq("target_type", targetType);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    console.error("Erro ao carregar highlights comunidade:", error);
-    return [] as HighlightRow[];
-  }
-
-  return (data ?? []) as HighlightRow[];
+  return (data ?? []) as Highlight[];
 }
 
 export async function isHighlighted(
@@ -81,9 +77,9 @@ export async function isHighlighted(
   targetType: HighlightTargetType,
   targetId: string,
 ) {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user) return false;
+  const { data: u } = await supabase.auth.getUser();
+  const user = u.user;
+  if (!user) return null;
 
   const { data, error } = await supabase
     .from("highlights")
@@ -95,50 +91,49 @@ export async function isHighlighted(
     .maybeSingle();
 
   if (error) {
-    console.error("Erro ao checar highlight:", error);
-    return false;
+    console.error("ERRO isHighlighted:", error);
+    return null;
   }
 
-  return !!data;
+  return data?.id ?? null; // string | null
 }
 
-export async function toggleHighlight(scope: HighlightScope, payload: TogglePayload) {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user) throw new Error("Usuário não autenticado.");
+export async function toggleHighlight(params: {
+  scope: HighlightScope;
+  targetType: HighlightTargetType;
+  targetId: string;
+  title?: string | null;
+  coverUrl?: string | null;
+}) {
+  const { data: u } = await supabase.auth.getUser();
+  const user = u.user;
+  if (!user) throw new Error("Não logado.");
 
-  const { data: existing, error: existingError } = await supabase
-    .from("highlights")
-    .select("id")
-    .eq("scope", scope)
-    .eq("user_id", user.id)
-    .eq("target_type", payload.targetType)
-    .eq("target_id", payload.targetId)
-    .maybeSingle();
+  const existingId = await isHighlighted(
+    params.scope,
+    params.targetType,
+    params.targetId,
+  );
 
-  if (existingError) throw existingError;
-
-  if (existing) {
+  if (existingId) {
     const { error } = await supabase
       .from("highlights")
       .delete()
-      .eq("id", existing.id);
+      .eq("id", existingId);
 
     if (error) throw error;
-
-    return { highlighted: false };
+    return { highlighted: false as const };
   }
 
   const { error } = await supabase.from("highlights").insert({
-    scope,
+    scope: params.scope,
     user_id: user.id,
-    target_type: payload.targetType,
-    target_id: payload.targetId,
-    title: payload.title ?? null,
-    cover_url: payload.coverUrl ?? null,
+    target_type: params.targetType,
+    target_id: params.targetId,
+    title: params.title ?? null,
+    cover_url: params.coverUrl ?? null,
   });
 
   if (error) throw error;
-
-  return { highlighted: true };
+  return { highlighted: true as const };
 }

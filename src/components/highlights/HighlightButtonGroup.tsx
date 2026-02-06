@@ -16,7 +16,7 @@ type Props = {
   targetId: string;
   title?: string;
   coverUrl?: string | null;
-  onToggle?: (
+  onChange?: (
     scope: HighlightScope,
     highlighted: boolean,
     payload: {
@@ -40,7 +40,7 @@ export default function HighlightButtonGroup({
   targetId,
   title,
   coverUrl,
-  onToggle,
+  onChange,
 }: Props) {
   const [state, setState] = useState<HighlightState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -55,24 +55,31 @@ export default function HighlightButtonGroup({
 
     async function load() {
       setLoading(true);
+
       const { data: userData } = await supabase.auth.getUser();
       if (!active) return;
 
       const user = userData.user;
       setCanUse(!!user);
+
       if (!user) {
         setState(EMPTY_STATE);
         setLoading(false);
         return;
       }
 
-      const [profile, community] = await Promise.all([
+      const [profileId, communityId] = await Promise.all([
         isHighlighted("profile", targetType, targetId),
         isHighlighted("community", targetType, targetId),
       ]);
 
       if (!active) return;
-      setState({ profile, community });
+
+      setState({
+        profile: !!profileId,
+        community: !!communityId,
+      });
+
       setLoading(false);
     }
 
@@ -82,33 +89,47 @@ export default function HighlightButtonGroup({
     };
   }, [targetId, targetType]);
 
-  async function onToggle(scope: HighlightScope) {
+  async function handleToggle(scope: HighlightScope) {
     if (!canUse) {
       toast.error("Você precisa estar logado.");
       return;
     }
 
-    const current = state[scope];
-    setState((prev) => ({ ...prev, [scope]: !current }));
+    const previous = state[scope];
+
+    // otimista
+    setState((prev) => ({ ...prev, [scope]: !previous }));
     setBusy((prev) => ({ ...prev, [scope]: true }));
 
     try {
-      const result = await toggleHighlight(scope, {
+      const result = await toggleHighlight({
+        scope,
         targetType,
         targetId,
         title,
         coverUrl,
       });
+
       setState((prev) => ({ ...prev, [scope]: result.highlighted }));
-      onToggle?.(scope, result.highlighted, {
+
+      onChange?.(scope, result.highlighted, {
         targetType,
         targetId,
         title,
         coverUrl,
       });
+
+      toast.success(
+        result.highlighted
+          ? "Adicionado aos destaques"
+          : "Removido dos destaques",
+      );
     } catch (error: any) {
       console.error("Erro ao alternar highlight:", error);
-      setState((prev) => ({ ...prev, [scope]: current }));
+
+      // rollback
+      setState((prev) => ({ ...prev, [scope]: previous }));
+
       toast.error(error?.message ?? "Não foi possível atualizar o destaque.");
     } finally {
       setBusy((prev) => ({ ...prev, [scope]: false }));
@@ -120,24 +141,23 @@ export default function HighlightButtonGroup({
       <Button
         type="button"
         size="sm"
-        variant="secondary"
+        variant={state.profile ? "secondary" : "outline"}
         className="rounded-2xl"
-        onClick={() => onToggle("profile")}
+        onClick={() => handleToggle("profile")}
         disabled={!canUse || loading || busy.profile}
       >
-        {state.profile ? "Remover destaque no perfil" : "⭐ Destacar no perfil"}
+        {state.profile ? "★ Perfil" : "☆ Destacar no perfil"}
       </Button>
+
       <Button
         type="button"
         size="sm"
-        variant="secondary"
+        variant={state.community ? "secondary" : "outline"}
         className="rounded-2xl"
-        onClick={() => onToggle("community")}
+        onClick={() => handleToggle("community")}
         disabled={!canUse || loading || busy.community}
       >
-        {state.community
-          ? "Remover destaque na comunidade"
-          : "📌 Destacar na comunidade"}
+        {state.community ? "📌 Comunidade" : "📌 Destacar na comunidade"}
       </Button>
     </div>
   );

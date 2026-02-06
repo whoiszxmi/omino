@@ -1,345 +1,474 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import RichTextEditor from "@/components/editor/RichTextEditor";
-import { renderRichHtml } from "@/lib/render/richText";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
-const CHAT_ID = "30377141-83e8-4d30-a8e8-1004688c5809";
-
-type Message = {
+type ChatRow = {
   id: string;
-  content: string; // HTML
+  type: "group" | "dm";
+  title: string | null;
   created_at: string;
-  persona: {
-    id: string;
-    name: string;
-    avatar_url?: string | null;
-  };
-  optimistic?: boolean;
+  last_message_at: string | null;
+  // se você tiver dm_key no schema, ok; se não tiver, remova de createDm()
+  dm_key?: string | null;
 };
 
-export default function ChatPage() {
-  const { activePersona } = useActivePersona();
+type ParticipantRow = {
+  chat_id: string;
+  last_read_at: string | null;
+};
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [html, setHtml] = useState("");
+type ProfileRow = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
+type ChatListItem = {
+  chat: ChatRow;
+  unread: boolean;
+  otherProfile: ProfileRow | null; // só para DM
+};
+
+function dmKey(a: string, b: string) {
+  const [x, y] = [a, b].sort();
+  return `dm:${x}:${y}`;
+}
+
+export default function ChatsPage() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
+  const [chats, setChats] = useState<ChatRow[]>([]);
 
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [items, setItems] = useState<ChatListItem[]>([]);
 
-  // cache: persona_id -> { name, avatar_url }
-  const personaCache = useRef<
-    Record<string, { name: string; avatar_url: string | null }>
-  >({});
+  // dialog criar
+  const [open, setOpen] = useState(false);
+  const [createType, setCreateType] = useState<"group" | "dm">("group");
+  const [title, setTitle] = useState("");
 
-  // auto-scroll só quando o usuário está “no fim”
-  const stickToBottomRef = useRef(true);
+  // DM search
+  const [userQuery, setUserQuery] = useState("");
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [users, setUsers] = useState<ProfileRow[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  const activePersonaId = activePersona?.id ?? null;
+  const [creating, setCreating] = useState(false);
 
-  function isNearBottom() {
-    const el = scrollerRef.current;
-    if (!el) return true;
-    const threshold = 140;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-  }
-
-  function scrollToBottom(smooth = true) {
-    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
-  }
-
-  async function ensurePersona(personaId: string) {
-    if (personaCache.current[personaId]) return personaCache.current[personaId];
-
-    const { data, error } = await supabase
-      .from("personas")
-      .select("id, name, avatar_url")
-      .eq("id", personaId)
-      .maybeSingle();
-
-    if (error || !data) {
-      personaCache.current[personaId] = {
-        name: "Desconhecido",
-        avatar_url: null,
-      };
-      return personaCache.current[personaId];
-    }
-
-    personaCache.current[personaId] = {
-      name: data.name,
-      avatar_url: data.avatar_url,
-    };
-    return personaCache.current[personaId];
-  }
-
-  async function loadMessages() {
+  async function loadChats() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("messages")
-      .select(
-        `
-        id,
-        content,
-        created_at,
-        persona_id,
-        personas (
-          name,
-          avatar_url
-        )
-      `
-      )
-      .eq("chat_id", CHAT_ID)
-      .order("created_at", { ascending: true })
-      .limit(200);
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
 
-    if (error) {
-      console.error("ERRO loadMessages:", error);
+    if (!user) {
+      setChats([]);
       setLoading(false);
       return;
     }
 
-    const mapped: Message[] = (data ?? []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      created_at: row.created_at,
-      persona: {
-        id: row.persona_id,
-        name: row.personas?.name ?? "Desconhecido",
-        avatar_url: row.personas?.avatar_url ?? null,
-      },
-    }));
+    const partsRes = await supabase
+      .from("chat_participants")
+      .select("chat_id")
+      .eq("user_id", user.id);
 
-    for (const msg of mapped) {
-      personaCache.current[msg.persona.id] = {
-        name: msg.persona.name,
-        avatar_url: msg.persona.avatar_url ?? null,
-      };
-    }
-
-    setMessages(mapped);
-    setLoading(false);
-
-    stickToBottomRef.current = true;
-    setTimeout(() => scrollToBottom(false), 0);
-  }
-
-  async function sendMessage() {
-    const content = html.trim();
-    if (!content || content === "<p></p>") return;
-
-    if (!activePersona) return;
-
-    // se está no fim, mantém “grudado”
-    stickToBottomRef.current = isNearBottom();
-
-    // alimenta cache com sua persona
-    personaCache.current[activePersona.id] = {
-      name: activePersona.name,
-      avatar_url: (activePersona as any).avatar_url ?? null,
-    };
-
-    const optimisticId = `optimistic-${crypto.randomUUID()}`;
-    const optimistic: Message = {
-      id: optimisticId,
-      content,
-      created_at: new Date().toISOString(),
-      persona: {
-        id: activePersona.id,
-        name: activePersona.name,
-        avatar_url: (activePersona as any).avatar_url ?? null,
-      },
-      optimistic: true,
-    };
-
-    setMessages((prev) => [...prev, optimistic]);
-    setHtml("");
-
-    setTimeout(() => {
-      if (stickToBottomRef.current) scrollToBottom(true);
-    }, 0);
-
-    const { data, error } = await supabase
-      .from("messages")
-      .insert({
-        chat_id: CHAT_ID,
-        persona_id: activePersona.id,
-        content, // HTML
-      })
-      .select("id, content, created_at, persona_id")
-      .single();
-
-    if (error) {
-      console.error("ERRO AO ENVIAR:", error);
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      setHtml(content);
+    if (partsRes.error) {
+      console.error("ERRO participants:", partsRes.error);
+      toast.error(partsRes.error.message);
+      setLoading(false);
       return;
     }
 
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === optimisticId
-          ? {
-              id: data.id,
-              content: data.content,
-              created_at: data.created_at,
-              persona: {
-                id: data.persona_id,
-                name: activePersona.name,
-                avatar_url: (activePersona as any).avatar_url ?? null,
-              },
-            }
-          : m
-      )
-    );
+    const ids = (partsRes.data ?? [])
+      .map((r: any) => r.chat_id)
+      .filter(Boolean);
+
+    if (ids.length === 0) {
+      setChats([]);
+      setLoading(false);
+      return;
+    }
+
+    const chatsRes = await supabase
+      .from("chats")
+      .select("id,type,title,created_at,last_message_at,dm_user_a,dm_user_b")
+      .in("id", ids)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false });
+
+    if (chatsRes.error) {
+      console.error("ERRO loadChats:", chatsRes.error);
+      toast.error(chatsRes.error.message);
+      setLoading(false);
+      return;
+    }
+
+    setChats((chatsRes.data ?? []) as any);
+    setLoading(false);
   }
 
   useEffect(() => {
-    loadMessages();
-
-    const channel = supabase
-      .channel(`chat-realtime-${CHAT_ID}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `chat_id=eq.${CHAT_ID}`,
-        },
-        (payload) => {
-          const row = payload.new as any;
-
-          // não “puxa” se o usuário está lendo histórico
-          stickToBottomRef.current = isNearBottom();
-
-          (async () => {
-            const info = await ensurePersona(row.persona_id);
-
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === row.id)) return prev;
-
-              return [
-                ...prev,
-                {
-                  id: row.id,
-                  content: row.content,
-                  created_at: row.created_at,
-                  persona: {
-                    id: row.persona_id,
-                    name: info.name,
-                    avatar_url: info.avatar_url,
-                  },
-                },
-              ];
-            });
-
-            setTimeout(() => {
-              if (stickToBottomRef.current) scrollToBottom(true);
-            }, 0);
-          })();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadChats();
   }, []);
 
-  const rendered = useMemo(() => {
-    return messages.map((m) => {
-      const isMine = !!activePersonaId && m.persona?.id === activePersonaId;
-      return { ...m, _isMine: isMine };
-    });
-  }, [messages, activePersonaId]);
+  // -------- DM USERS SEARCH ----------
+  async function searchUsers(q: string) {
+    const { data: userData } = await supabase.auth.getUser();
+    const me = userData.user;
+    if (!me) return;
 
-  function handleScroll() {
-    stickToBottomRef.current = isNearBottom();
-  }
+    const query = q.trim();
+    if (!query) {
+      setUsers([]);
+      return;
+    }
 
-  // Enter para enviar / Shift+Enter quebra linha
-  function onEditorKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+    setSearchingUsers(true);
+    try {
+      const res = await supabase
+        .from("profiles")
+        .select("id,username,display_name,avatar_url")
+        .neq("id", me.id)
+        .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+        .limit(20);
+
+      if (res.error) throw res.error;
+      setUsers((res.data ?? []) as any);
+    } catch (e: any) {
+      console.error("ERRO searchUsers:", e);
+      toast.error(e?.message ?? "Erro ao buscar usuários.");
+    } finally {
+      setSearchingUsers(false);
     }
   }
 
+  // -------- CREATE GROUP ----------
+  async function createGroup() {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    const { data: u } = await supabase.auth.getUser();
+    console.log("auth user:", u.user?.id);
+
+    if (!user) return toast.error("Você precisa estar logado.");
+    if (!title.trim()) return toast.error("Dê um nome para o chat.");
+
+    setCreating(true);
+    try {
+      const { data: chat, error: chatErr } = await supabase
+        .from("chats")
+        .insert({
+          type: "group",
+          title: title.trim(),
+          // NÃO existe created_by
+          dm_key: null,
+          dm_user_a: null,
+          dm_user_b: null,
+          last_message_text: null,
+          last_message_at: null,
+        })
+        .select("id")
+        .single();
+
+      if (chatErr || !chat) throw chatErr;
+
+      const { error: partErr } = await supabase
+        .from("chat_participants")
+        .insert({
+          chat_id: chat.id,
+          user_id: user.id,
+          role: "owner",
+        });
+
+      if (partErr) throw partErr;
+
+      toast.success("Grupo criado!");
+      setOpen(false);
+      setTitle("");
+      await loadChats();
+      router.push(`/app/chats/${chat.id}`);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Erro ao criar grupo");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // -------- CREATE DM ----------
+  function dmKey(a: string, b: string) {
+    const [x, y] = [a, b].sort();
+    return `dm:${x}:${y}`;
+  }
+
+  async function createDm() {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (!user) return toast.error("Você precisa estar logado.");
+    if (!selectedUserId) return toast.error("Selecione um usuário.");
+
+    setCreating(true);
+    try {
+      const key = dmKey(user.id, selectedUserId);
+      const [a, b] = [user.id, selectedUserId].sort();
+
+      // procura DM existente
+      const { data: existing, error: exErr } = await supabase
+        .from("chats")
+        .select("id")
+        .eq("type", "dm")
+        .eq("dm_key", key)
+        .maybeSingle();
+
+      if (exErr) throw exErr;
+
+      if (existing?.id) {
+        toast.success("DM já existe — abrindo.");
+        setOpen(false);
+        await loadChats();
+        router.push(`/app/chats/${existing.id}`);
+        return;
+      }
+
+      // cria DM
+      const { data: chat, error: chatErr } = await supabase
+        .from("chats")
+        .insert({
+          type: "dm",
+          title: null,
+          dm_key: key,
+          dm_user_a: a,
+          dm_user_b: b,
+          last_message_text: null,
+          last_message_at: null,
+        })
+        .select("id")
+        .single();
+
+      if (chatErr || !chat) throw chatErr;
+
+      // adiciona participants (pros dois)
+      const { error: partErr } = await supabase
+        .from("chat_participants")
+        .insert([
+          { chat_id: chat.id, user_id: user.id, role: "owner" },
+          { chat_id: chat.id, user_id: selectedUserId, role: "member" },
+        ]);
+
+      if (partErr) throw partErr;
+
+      toast.success("DM criado!");
+      setOpen(false);
+      setSelectedUserId(null);
+      setUserQuery("");
+      await loadChats();
+      router.push(`/app/chats/${chat.id}`);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Erro ao criar DM");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const empty = !loading && items.length === 0;
+
   return (
-    <div className="flex min-h-dvh flex-col">
-      <div
-        ref={scrollerRef}
-        onScroll={handleScroll}
-        className="flex-1 space-y-2 overflow-y-auto p-4"
-      >
-        {loading && (
-          <div className="text-sm text-muted-foreground">Carregando...</div>
-        )}
+    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+      <header className="flex items-center justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold">Chats</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            Grupos e conversas privadas
+          </p>
+        </div>
 
-        {rendered.map((m: any) => (
-          <div
-            key={m.id}
-            className={`flex ${m._isMine ? "justify-end" : "justify-start"}`}
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={loadChats}
           >
-            <div
-              className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${
-                m._isMine ? "bg-primary text-primary-foreground" : "bg-muted"
-              } ${m.optimistic ? "opacity-70" : ""}`}
-            >
-              {!m._isMine && (
-                <div className="mb-1 text-xs font-medium text-muted-foreground">
-                  {m.persona?.name}
-                </div>
-              )}
+            Atualizar
+          </Button>
 
-              <div
-                className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                dangerouslySetInnerHTML={{
-                  __html: renderRichHtml(m.content),
-                }}
-              />
-            </div>
-          </div>
-        ))}
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="rounded-2xl">Novo</Button>
+            </DialogTrigger>
 
-        <div ref={bottomRef} />
-      </div>
+            <DialogContent className="rounded-2xl">
+              <DialogHeader>
+                <DialogTitle>Criar chat</DialogTitle>
+              </DialogHeader>
 
-      <div className="border-t p-3 space-y-2">
-        <div className="text-xs text-muted-foreground">
-          {activePersona
-            ? `Mensagem como ${activePersona.name}`
-            : "Selecione uma persona"}
-          <span className="ml-2 opacity-70">• Shift+Enter quebra linha</span>
+              <div className="space-y-3">
+                <ToggleGroup
+                  type="single"
+                  value={createType}
+                  onValueChange={(v) => {
+                    const next = (v as "group" | "dm") || "group";
+                    setCreateType(next);
+                    // reset ao trocar tipo
+                    setTitle("");
+                    setUserQuery("");
+                    setUsers([]);
+                    setSelectedUserId(null);
+                  }}
+                  className="flex gap-2"
+                >
+                  <ToggleGroupItem value="group" className="rounded-2xl border">
+                    Grupo
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="dm" className="rounded-2xl border">
+                    Privado (DM)
+                  </ToggleGroupItem>
+                </ToggleGroup>
+
+                {createType === "group" ? (
+                  <Input
+                    placeholder="Nome do grupo"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Buscar usuário (username ou nome)"
+                      value={userQuery}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setUserQuery(v);
+                        setSelectedUserId(null);
+                        // busca “ao digitar”
+                        void searchUsers(v);
+                      }}
+                    />
+
+                    {searchingUsers ? (
+                      <div className="text-sm text-muted-foreground">
+                        Buscando...
+                      </div>
+                    ) : users.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        Digite para buscar.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {users.map((u) => {
+                          const label =
+                            u.display_name ?? u.username ?? "Sem nome";
+                          const selected = selectedUserId === u.id;
+
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => setSelectedUserId(u.id)}
+                              className={`w-full rounded-2xl border p-3 text-left transition ${
+                                selected ? "bg-muted/50" : "hover:bg-muted/30"
+                              }`}
+                            >
+                              <div className="text-sm font-medium truncate">
+                                {label}
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                @{u.username ?? "sem-username"}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  className="w-full rounded-2xl"
+                  onClick={createType === "group" ? createGroup : createDm}
+                  disabled={creating}
+                >
+                  {creating ? "Criando..." : "Criar"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
+      </header>
 
-        {/* wrapper para capturar Enter/Shift+Enter */}
-        <div onKeyDown={onEditorKeyDown}>
-          <RichTextEditor
-            valueHtml={html}
-            onChangeHtml={setHtml}
-            placeholder={activePersona ? "Escreva..." : "Selecione uma persona"}
-            folder="chat"
-            bucket="media"
-            compact
-            imageInsertMode="both"
-          />
+      {loading ? (
+        <div className="text-sm text-muted-foreground">Carregando...</div>
+      ) : empty ? (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">Nenhum chat ainda</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Crie um chat em <b>Novo</b>.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {items.map(({ chat, unread, otherProfile }) => {
+            const dmLabel =
+              otherProfile?.display_name ?? otherProfile?.username ?? "DM";
+
+            const title =
+              chat.type === "group" ? (chat.title ?? "Grupo") : dmLabel;
+
+            const subtitle = chat.last_message_at
+              ? `Última msg: ${new Date(chat.last_message_at).toLocaleString(
+                  "pt-BR",
+                )}`
+              : `Criado em: ${new Date(chat.created_at).toLocaleString("pt-BR")}`;
+
+            return (
+              <button
+                key={chat.id}
+                type="button"
+                className="w-full text-left"
+                onClick={() => router.push(`/app/chats/${chat.id}`)}
+              >
+                <Card className="rounded-2xl transition hover:bg-muted/30">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm truncate flex-1">
+                        {title}
+                      </CardTitle>
+                      {unread ? (
+                        <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+                      ) : null}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground truncate">
+                      {subtitle}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="text-xs text-muted-foreground">
+                    Toque para abrir
+                  </CardContent>
+                </Card>
+              </button>
+            );
+          })}
         </div>
-
-        <Button
-          className="w-full rounded-2xl"
-          onClick={sendMessage}
-          disabled={!activePersona || !html.trim() || html.trim() === "<p></p>"}
-        >
-          Enviar
-        </Button>
-      </div>
+      )}
     </div>
   );
 }
