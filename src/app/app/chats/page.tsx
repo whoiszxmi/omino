@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,8 +22,9 @@ type ChatRow = {
   title: string | null;
   created_at: string;
   last_message_at: string | null;
-  // se você tiver dm_key no schema, ok; se não tiver, remova de createDm()
   dm_key?: string | null;
+  dm_user_a?: string | null;
+  dm_user_b?: string | null;
 };
 
 type ParticipantRow = {
@@ -44,6 +45,13 @@ type ChatListItem = {
   otherProfile: ProfileRow | null; // só para DM
 };
 
+type SupabaseErrorLike = {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+};
+
 function dmKey(a: string, b: string) {
   const [x, y] = [a, b].sort();
   return `dm:${x}:${y}`;
@@ -53,8 +61,6 @@ export default function ChatsPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-  const [chats, setChats] = useState<ChatRow[]>([]);
-
   const [items, setItems] = useState<ChatListItem[]>([]);
 
   // dialog criar
@@ -77,29 +83,34 @@ export default function ChatsPage() {
     const user = userData.user;
 
     if (!user) {
-      setChats([]);
+      setItems([]);
       setLoading(false);
       return;
     }
 
     const partsRes = await supabase
       .from("chat_participants")
-      .select("chat_id")
+      .select("chat_id,last_read_at")
       .eq("user_id", user.id);
 
     if (partsRes.error) {
-      console.error("ERRO participants:", partsRes.error);
+      console.error("ERRO participants:", {
+        message: partsRes.error.message,
+        code: partsRes.error.code,
+        details: partsRes.error.details,
+        hint: partsRes.error.hint,
+        raw: partsRes.error,
+      });
       toast.error(partsRes.error.message);
       setLoading(false);
       return;
     }
 
-    const ids = (partsRes.data ?? [])
-      .map((r: any) => r.chat_id)
-      .filter(Boolean);
+    const participants = (partsRes.data ?? []) as ParticipantRow[];
+    const ids = participants.map((r) => r.chat_id).filter(Boolean);
 
     if (ids.length === 0) {
-      setChats([]);
+      setItems([]);
       setLoading(false);
       return;
     }
@@ -112,13 +123,77 @@ export default function ChatsPage() {
       .order("created_at", { ascending: false });
 
     if (chatsRes.error) {
-      console.error("ERRO loadChats:", chatsRes.error);
+      console.error("ERRO loadChats:", {
+        message: chatsRes.error.message,
+        code: chatsRes.error.code,
+        details: chatsRes.error.details,
+        hint: chatsRes.error.hint,
+        raw: chatsRes.error,
+      });
       toast.error(chatsRes.error.message);
       setLoading(false);
       return;
     }
 
-    setChats((chatsRes.data ?? []) as any);
+    const loadedChats = (chatsRes.data ?? []) as ChatRow[];
+
+    const participantMap = new Map(
+      participants.map((p) => [p.chat_id, p.last_read_at]),
+    );
+
+    const dmUserIds = loadedChats
+      .filter((chat) => chat.type === "dm")
+      .map((chat) =>
+        chat.dm_user_a === user.id ? chat.dm_user_b : chat.dm_user_a,
+      )
+      .filter((id): id is string => Boolean(id));
+
+    let profileMap = new Map<string, ProfileRow>();
+    if (dmUserIds.length > 0) {
+      const profilesRes = await supabase
+        .from("profiles")
+        .select("id,username,display_name,avatar_url")
+        .in("id", dmUserIds);
+
+      if (profilesRes.error) {
+        console.error("ERRO loadChatProfiles:", {
+          message: profilesRes.error.message,
+          code: profilesRes.error.code,
+          details: profilesRes.error.details,
+          hint: profilesRes.error.hint,
+          raw: profilesRes.error,
+        });
+        toast.error(profilesRes.error.message);
+      } else {
+        profileMap = new Map(
+          (profilesRes.data ?? []).map((row) => [row.id, row as ProfileRow]),
+        );
+      }
+    }
+
+    const nextItems = loadedChats.map((chat) => {
+      const lastRead = participantMap.get(chat.id);
+      const unread =
+        !!chat.last_message_at &&
+        (!lastRead ||
+          new Date(chat.last_message_at).getTime() >
+            new Date(lastRead).getTime());
+
+      const otherUserId =
+        chat.type === "dm"
+          ? chat.dm_user_a === user.id
+            ? chat.dm_user_b
+            : chat.dm_user_a
+          : null;
+
+      return {
+        chat,
+        unread,
+        otherProfile: otherUserId ? profileMap.get(otherUserId) ?? null : null,
+      };
+    });
+
+    setItems(nextItems);
     setLoading(false);
   }
 
@@ -148,10 +223,17 @@ export default function ChatsPage() {
         .limit(20);
 
       if (res.error) throw res.error;
-      setUsers((res.data ?? []) as any);
-    } catch (e: any) {
-      console.error("ERRO searchUsers:", e);
-      toast.error(e?.message ?? "Erro ao buscar usuários.");
+      setUsers((res.data ?? []) as ProfileRow[]);
+    } catch (error: unknown) {
+      const err = error as SupabaseErrorLike;
+      console.error("ERRO searchUsers:", {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
+      });
+      toast.error(err?.message ?? "Erro ao buscar usuários.");
     } finally {
       setSearchingUsers(false);
     }
@@ -174,12 +256,6 @@ export default function ChatsPage() {
         .insert({
           type: "group",
           title: title.trim(),
-          // NÃO existe created_by
-          dm_key: null,
-          dm_user_a: null,
-          dm_user_b: null,
-          last_message_text: null,
-          last_message_at: null,
         })
         .select("id")
         .single();
@@ -201,20 +277,22 @@ export default function ChatsPage() {
       setTitle("");
       await loadChats();
       router.push(`/app/chats/${chat.id}`);
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message ?? "Erro ao criar grupo");
+    } catch (error: unknown) {
+      const err = error as SupabaseErrorLike;
+      console.error("ERRO createGroup:", {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
+      });
+      toast.error(err?.message ?? "Erro ao criar grupo");
     } finally {
       setCreating(false);
     }
   }
 
   // -------- CREATE DM ----------
-  function dmKey(a: string, b: string) {
-    const [x, y] = [a, b].sort();
-    return `dm:${x}:${y}`;
-  }
-
   async function createDm() {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
@@ -254,8 +332,6 @@ export default function ChatsPage() {
           dm_key: key,
           dm_user_a: a,
           dm_user_b: b,
-          last_message_text: null,
-          last_message_at: null,
         })
         .select("id")
         .single();
@@ -278,9 +354,16 @@ export default function ChatsPage() {
       setUserQuery("");
       await loadChats();
       router.push(`/app/chats/${chat.id}`);
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message ?? "Erro ao criar DM");
+    } catch (error: unknown) {
+      const err = error as SupabaseErrorLike;
+      console.error("ERRO createDm:", {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
+      });
+      toast.error(err?.message ?? "Erro ao criar DM");
     } finally {
       setCreating(false);
     }

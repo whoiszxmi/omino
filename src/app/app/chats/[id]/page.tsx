@@ -17,6 +17,44 @@ type UiMessage = {
   persona: { id: string; name: string; avatar_url: string | null };
 };
 
+type ChatMeta = {
+  id: string;
+  type: "group" | "dm";
+  title: string | null;
+  created_at: string;
+  last_message_at: string | null;
+};
+
+type SupabaseErrorLike = {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+};
+
+type MessageRow = {
+  id: string;
+  chat_id: string;
+  persona_id: string;
+  content: string;
+  created_at: string;
+  personas: { id: string; name: string; avatar_url: string | null } | null;
+};
+
+type InsertMessageRow = {
+  id: string;
+  created_at: string;
+  persona_id: string;
+  content: string;
+};
+
+type RealtimeMessageRow = {
+  id: string;
+  content: string;
+  created_at: string;
+  persona_id: string;
+};
+
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     v,
@@ -46,6 +84,7 @@ export default function ChatRoomPage() {
   const activePersonaId = activePersona?.id ?? null;
 
   const [loading, setLoading] = useState(true);
+  const [chatMeta, setChatMeta] = useState<ChatMeta | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [inputHtml, setInputHtml] = useState("");
   const [sending, setSending] = useState(false);
@@ -91,6 +130,15 @@ export default function ChatRoomPage() {
       .maybeSingle();
 
     if (error || !data) {
+      if (error) {
+        console.error("ERRO ensurePersona:", {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          raw: error,
+        });
+      }
       personaCache.current[personaId] = {
         name: "Desconhecido",
         avatar_url: null,
@@ -110,11 +158,50 @@ export default function ChatRoomPage() {
     const me = userData.user;
     if (!me) return;
 
-    await supabase
+    const { error } = await supabase
       .from("chat_participants")
       .update({ last_read_at: new Date().toISOString() })
       .eq("chat_id", validChatId)
       .eq("user_id", me.id);
+
+    if (error) {
+      console.error("ERRO markAsRead:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        raw: error,
+      });
+    }
+  }
+
+  async function loadChatMeta(validChatId: string) {
+    const { data, error } = await supabase
+      .from("chats")
+      .select("id,type,title,created_at,last_message_at")
+      .eq("id", validChatId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("ERRO loadChatMeta:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        raw: error,
+      });
+      toast.error(error.message);
+      setChatMeta(null);
+      return null;
+    }
+
+    if (!data) {
+      setChatMeta(null);
+      return null;
+    }
+
+    setChatMeta(data as ChatMeta);
+    return data as ChatMeta;
   }
 
   async function loadMessages(validChatId: string) {
@@ -141,20 +228,21 @@ export default function ChatRoomPage() {
       .limit(120);
 
     if (error) {
+      const err = error as SupabaseErrorLike;
       console.error("ERRO loadMessages:", {
-        message: (error as any)?.message,
-        code: (error as any)?.code,
-        details: (error as any)?.details,
-        hint: (error as any)?.hint,
-        raw: error,
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
       });
-      toast.error((error as any)?.message ?? "Erro ao carregar mensagens.");
+      toast.error(err?.message ?? "Erro ao carregar mensagens.");
       setMessages([]);
       setLoading(false);
       return;
     }
 
-    const mapped: UiMessage[] = (data ?? []).map((row: any) => {
+    const mapped: UiMessage[] = ((data ?? []) as MessageRow[]).map((row) => {
       const p = row.personas;
       const name = p?.name ?? "Desconhecido";
       const avatar_url = p?.avatar_url ?? null;
@@ -212,7 +300,7 @@ export default function ChatRoomPage() {
       persona: {
         id: activePersona.id,
         name: activePersona.name,
-        avatar_url: (activePersona as any).avatar_url ?? null,
+        avatar_url: activePersona.avatar_url ?? null,
       },
     };
 
@@ -238,9 +326,9 @@ export default function ChatRoomPage() {
         prev.map((m) =>
           m.id === optimisticId
             ? {
-                id: data.id,
-                content: data.content,
-                created_at: data.created_at,
+                id: (data as InsertMessageRow).id,
+                content: (data as InsertMessageRow).content,
+                created_at: (data as InsertMessageRow).created_at,
                 persona: optimistic.persona,
               }
             : m,
@@ -251,18 +339,19 @@ export default function ChatRoomPage() {
       if (atBottomRef.current) {
         await markAsRead(chatId);
       }
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const err = error as SupabaseErrorLike;
       console.error("ERRO sendMessage:", {
-        message: e?.message,
-        code: e?.code,
-        details: e?.details,
-        hint: e?.hint,
-        raw: e,
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
       });
 
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setInputHtml(html);
-      toast.error(e?.message ?? "Não foi possível enviar.");
+      toast.error(err?.message ?? "Não foi possível enviar.");
     } finally {
       setSending(false);
     }
@@ -277,6 +366,13 @@ export default function ChatRoomPage() {
     let mounted = true;
 
     async function boot() {
+      const meta = await loadChatMeta(chatId);
+      if (!meta) {
+        setMessages([]);
+        setLoading(false);
+        return;
+      }
+
       await loadMessages(chatId);
       if (!mounted) return;
 
@@ -295,7 +391,7 @@ export default function ChatRoomPage() {
             filter: `chat_id=eq.${chatId}`,
           },
           (payload) => {
-            const row = payload.new as any;
+            const row = payload.new as RealtimeMessageRow;
 
             (async () => {
               const info = await ensurePersona(row.persona_id);
@@ -378,7 +474,11 @@ export default function ChatRoomPage() {
           </Button>
 
           <div className="min-w-0 text-center">
-            <div className="truncate text-sm font-semibold">Chat</div>
+            <div className="truncate text-sm font-semibold">
+              {chatMeta?.type === "group"
+                ? chatMeta.title ?? "Grupo"
+                : "Chat"}
+            </div>
             <div className="truncate text-[11px] text-muted-foreground">
               {activePersona
                 ? `Falando como: ${activePersona.name}`
@@ -397,8 +497,18 @@ export default function ChatRoomPage() {
         className="flex-1 space-y-2 overflow-y-auto px-3 py-3"
       >
         {!chatId || !isUuid(chatId) ? (
-          <div className="text-sm text-muted-foreground">
-            Chat inválido. Volte para a lista e abra novamente.
+          <div className="space-y-2">
+            <div className="text-sm text-muted-foreground">
+              Chat inválido. Volte para a lista e abra novamente.
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              className="rounded-2xl"
+              onClick={() => router.push("/app/chats")}
+            >
+              Voltar
+            </Button>
           </div>
         ) : loading ? (
           <div className="text-sm text-muted-foreground">Carregando...</div>
