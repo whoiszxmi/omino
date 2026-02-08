@@ -2,9 +2,9 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 
-export const metadata: Metadata = {
-  title: "Onima",
-  description: "de fã para fã. Proibida distribição comercial.",
+export const metadata = {
+  manifest: "/manifest.webmanifest",
+  themeColor: "#0b0b0f",
 };
 
 export const viewport: Viewport = {

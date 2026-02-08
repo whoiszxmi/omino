@@ -5,7 +5,7 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Kyodo-like</h1>
+        <h1 className="text-lg font-semibold">Uzure</h1>
         <Button size="sm" variant="secondary">
           Entrar
         </Button>

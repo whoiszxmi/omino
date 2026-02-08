@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils"; // se não tiver cn, te passo fallback
 import { Plus } from "lucide-react";
 
 function isActive(pathname: string, href: string) {
-  if (href === "/app/feed") return pathname === "/app" || pathname.startsWith("/app/feed");
+  if (href === "/app/feed")
+    return pathname === "/app" || pathname.startsWith("/app/feed");
   return pathname.startsWith(href);
 }
 
@@ -32,7 +33,7 @@ export default function AppShell({
         {/* Sidebar (desktop) */}
         <aside className="hidden w-64 flex-col border-r p-4 md:flex">
           <div className="mb-4">
-            <div className="text-lg font-semibold">Kyodo-like</div>
+            <div className="text-lg font-semibold">Uzure</div>
             <div className="text-xs text-muted-foreground">
               Comunidade privada
             </div>
@@ -47,9 +48,7 @@ export default function AppShell({
                   <div
                     className={cn(
                       "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition",
-                      active
-                        ? "bg-muted font-medium"
-                        : "hover:bg-muted/60"
+                      active ? "bg-muted font-medium" : "hover:bg-muted/60",
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -109,7 +108,7 @@ export default function AppShell({
                     <div
                       className={cn(
                         "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-xs transition",
-                        active ? "bg-muted font-medium" : "hover:bg-muted/60"
+                        active ? "bg-muted font-medium" : "hover:bg-muted/60",
                       )}
                     >
                       <Icon className="h-5 w-5" />
