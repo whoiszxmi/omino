@@ -188,8 +188,8 @@ export default function ProfilePage() {
 
     // highlights
     setHighlightsLoading(true);
-    const highlightRows = await getMyHighlights("profile");
-    setHighlights(highlightRows);
+    const Highlights = await getMyHighlights("profile");
+    setHighlights(Highlights);
     setHighlightsLoading(false);
 
     setLoading(false);

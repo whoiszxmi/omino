@@ -5,7 +5,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card } from "@/components/ui/card";
 import {
   getCommunityHighlights,
-  type HighlightRow,
+  type Highlight,
   type HighlightTargetType,
 } from "@/lib/highlights/highlights";
 
@@ -13,7 +13,7 @@ type FilterType = "all" | HighlightTargetType;
 
 export default function HighlightsPage() {
   const [loading, setLoading] = useState(true);
-  const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [filter, setFilter] = useState<FilterType>("all");
 
   useEffect(() => {
@@ -52,9 +52,7 @@ export default function HighlightsPage() {
       <ToggleGroup
         type="single"
         value={filter}
-        onValueChange={(value) =>
-          setFilter((value as FilterType) || "all")
-        }
+        onValueChange={(value) => setFilter((value as FilterType) || "all")}
         className="flex flex-wrap gap-2"
       >
         <ToggleGroupItem
@@ -97,8 +95,7 @@ export default function HighlightsPage() {
         <div className="grid grid-cols-2 gap-3">
           {filtered.map((item) => {
             const isWiki = item.target_type === "wiki";
-            const title =
-              item.title ?? (isWiki ? "Wiki" : "Post");
+            const title = item.title ?? (isWiki ? "Wiki" : "Post");
 
             return (
               <button
