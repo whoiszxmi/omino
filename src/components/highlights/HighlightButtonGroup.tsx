@@ -16,7 +16,9 @@ type Props = {
   targetId: string;
   title?: string;
   coverUrl?: string | null;
-  onChange?: (
+
+  // ✅ ADICIONAR ISSO:
+  onToggle?: (
     scope: HighlightScope,
     highlighted: boolean,
     payload: {
