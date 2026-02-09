@@ -38,7 +38,7 @@ type MessageRow = {
   persona_id: string;
   content: string;
   created_at: string;
-  personas: { id: string; name: string; avatar_url: string | null } | null;
+  personas: { id: string; name: string; avatar_url: string | null };
 };
 
 type InsertMessageRow = {
@@ -211,21 +211,21 @@ export default function ChatRoomPage() {
       .from("messages")
       .select(
         `
-        id,
-        chat_id,
-        persona_id,
-        content,
-        created_at,
-        personas (
-          id,
-          name,
-          avatar_url
-        )
-      `,
+    id,
+    chat_id,
+    persona_id,
+    content,
+    created_at,
+    personas!inner (
+      id,
+      name,
+      avatar_url
+    )
+  `,
       )
-      .eq("chat_id", validChatId)
+      .eq("chat_id", chatId)
       .order("created_at", { ascending: true })
-      .limit(120);
+      .limit(200);
 
     if (error) {
       const err = error as SupabaseErrorLike;
@@ -242,14 +242,9 @@ export default function ChatRoomPage() {
       return;
     }
 
-    const mapped: UiMessage[] = ((data ?? []) as MessageRow[]).map((row) => {
+    const rows = (data ?? []) as unknown as MessageRow[];
+    const mapped: UiMessage[] = rows.map((row) => {
       const p = row.personas;
-      const name = p?.name ?? "Desconhecido";
-      const avatar_url = p?.avatar_url ?? null;
-
-      if (row.persona_id) {
-        personaCache.current[row.persona_id] = { name, avatar_url };
-      }
 
       return {
         id: row.id,
@@ -257,8 +252,8 @@ export default function ChatRoomPage() {
         created_at: row.created_at,
         persona: {
           id: row.persona_id,
-          name,
-          avatar_url,
+          name: p?.name ?? "Desconhecido",
+          avatar_url: p?.avatar_url ?? null,
         },
       };
     });
@@ -476,7 +471,7 @@ export default function ChatRoomPage() {
           <div className="min-w-0 text-center">
             <div className="truncate text-sm font-semibold">
               {chatMeta?.type === "group"
-                ? chatMeta.title ?? "Grupo"
+                ? (chatMeta.title ?? "Grupo")
                 : "Chat"}
             </div>
             <div className="truncate text-[11px] text-muted-foreground">
