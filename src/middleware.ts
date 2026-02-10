@@ -25,14 +25,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/auth/callback" || pathname === "/login") {
+  if (pathname === "/auth/callback" || pathname === "/app/login") {
     return NextResponse.next();
   }
 
   if (pathname.startsWith("/app")) {
     const isAuthed = request.cookies.get(AUTH_COOKIE)?.value === "1";
     if (!isAuthed) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = new URL("/app/login", request.url);
       loginUrl.searchParams.set("next", pathname);
       return NextResponse.redirect(loginUrl);
     }
