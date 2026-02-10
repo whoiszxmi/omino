@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 
 // Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
 // (ex: "@/components/feed/PostComments")
-import PostComments from "@/app/app/feed/PostComments";
+import PostComments from "@/app/app/(protected)/feed/PostComments";
 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
