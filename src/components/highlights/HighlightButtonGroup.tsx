@@ -114,7 +114,7 @@ export default function HighlightButtonGroup({
 
       setState((prev) => ({ ...prev, [scope]: result.highlighted }));
 
-      onToggle?.("profile", nextHighlighted, {
+      onToggle?.("profile", result.highlighted, {
         targetType,
         targetId,
         title,
