@@ -1,68 +1,176 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+
+type GuardState =
+  | { status: "checking" }
+  | { status: "allowed" }
+  | { status: "denied"; message: string }
+  | { status: "error"; message: string };
+
+type IsEmailAllowedRpc = boolean | { is_email_allowed?: boolean } | null;
+
+function parseIsAllowed(data: IsEmailAllowedRpc) {
+  if (typeof data === "boolean") return data;
+  if (data && typeof data === "object" && "is_email_allowed" in data) {
+    return Boolean(data.is_email_allowed);
+  }
+  return false;
+}
 
 export default function AllowlistGuard({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [ok, setOk] = useState<boolean | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [state, setState] = useState<GuardState>({ status: "checking" });
+
+  const verify = useCallback(async () => {
+    let cancelled = false;
+
+    try {
+      setState({ status: "checking" });
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        if (!cancelled) {
+          setState({ status: "error", message: userError.message });
+        }
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      if (!user || !user.email) {
+        if (pathname !== "/app/login") {
+          router.replace("/app/login");
+        }
+        if (!cancelled) {
+          setState({ status: "denied", message: "Sessão não encontrada." });
+        }
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        "is_email_allowed",
+        { email: user.email },
+      );
+
+      if (rpcError) {
+        console.warn("allowlist rpc error", {
+          message: rpcError.message,
+          code: rpcError.code,
+          details: rpcError.details,
+          hint: rpcError.hint,
+        });
+
+        if (!cancelled) {
+          setState({ status: "error", message: "Falha ao validar allowlist." });
+        }
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      const isAllowed = parseIsAllowed(rpcData as IsEmailAllowedRpc);
+
+      if (!isAllowed) {
+        if (!cancelled) {
+          setState({
+            status: "denied",
+            message:
+              "Seu usuário não está autorizado nesta allowlist. Peça liberação ao administrador.",
+          });
+        }
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      if (!cancelled) {
+        setState({ status: "allowed" });
+      }
+    } catch (error) {
+      if (!cancelled) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao validar acesso.";
+        setState({ status: "error", message });
+      }
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, router]);
 
   useEffect(() => {
-    let mounted = true;
+    let cleanup: (() => void) | undefined;
 
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
-
-      if (!user) {
-        if (mounted) setOk(false);
-        return;
-      }
-
-      const { data: row, error } = await supabase
-        .from("allowed_users")
-        .select("user_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (error || !row) {
-        await supabase.auth.signOut();
-        if (mounted) setOk(false);
-        return;
-      }
-
-      if (mounted) setOk(true);
+      cleanup = await verify();
     })();
 
     return () => {
-      mounted = false;
+      cleanup?.();
     };
-  }, []);
+  }, [verify]);
 
-  if (ok === null)
-    return (
-      <div className="p-4 text-sm text-muted-foreground">
-        Verificando acesso…
-      </div>
-    );
+  if (state.status === "checking") {
+    return <div className="p-4 text-sm text-muted-foreground">Verificando acesso…</div>;
+  }
 
-  if (ok === false) {
+  if (state.status === "allowed") {
+    return <>{children}</>;
+  }
+
+  if (state.status === "error") {
     return (
-      <div className="p-4">
-        <div className="text-lg font-semibold">Acesso restrito</div>
-        <div className="mt-2 text-sm text-muted-foreground">
-          Este app é privado. Se você deveria ter acesso, fale com o
-          administrador.
-        </div>
-        <a className="mt-4 inline-block underline" href="/login">
-          Voltar para login
-        </a>
+      <div className="space-y-3 p-4">
+        <p className="text-sm text-red-400">Falha ao verificar acesso: {state.message}</p>
+        <Button onClick={() => void verify()} className="rounded-2xl">
+          Tentar novamente
+        </Button>
       </div>
     );
   }
 
-  return <>{children}</>;
+  return (
+    <div className="space-y-3 p-4">
+      <div className="text-lg font-semibold">Acesso não autorizado</div>
+      <div className="text-sm text-muted-foreground">{state.message}</div>
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          className="rounded-2xl"
+          onClick={async () => {
+            await supabase.auth.signOut();
+            router.replace("/app/login");
+          }}
+        >
+          Sair
+        </Button>
+        <Button
+          className="rounded-2xl"
+          onClick={() => {
+            router.replace("/app/login");
+          }}
+        >
+          Voltar
+        </Button>
+      </div>
+    </div>
+  );
 }

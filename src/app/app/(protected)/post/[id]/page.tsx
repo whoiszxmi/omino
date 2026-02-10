@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-import PostComments from "@/app/app/feed/PostComments";
+import PostComments from "@/app/app/(protected)/feed/PostComments";
 import { renderRichHtml } from "@/lib/render/richText";
 
 type PostRow = {
