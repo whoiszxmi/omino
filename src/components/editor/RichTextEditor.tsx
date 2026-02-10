@@ -421,6 +421,9 @@ export default function RichTextEditor({
   if (a.link) value.push("link");
 
   function onToggle(next: string[]) {
+    const ed = editor;
+    if (!ed) return;
+
     const prev = new Set(value);
     const now = new Set(next);
 
@@ -431,19 +434,19 @@ export default function RichTextEditor({
 
     switch (key) {
       case "bold":
-        editor.chain().focus().toggleBold().run();
+        ed.chain().focus().toggleBold().run();
         break;
       case "italic":
-        editor.chain().focus().toggleItalic().run();
+        ed.chain().focus().toggleItalic().run();
         break;
       case "underline":
-        editor.chain().focus().toggleUnderline().run();
+        ed.chain().focus().toggleUnderline().run();
         break;
       case "bullet":
-        editor.chain().focus().toggleBulletList().run();
+        ed.chain().focus().toggleBulletList().run();
         break;
       case "link":
-        toggleLink(editor);
+        toggleLink(ed); // ou toggleLink(ed) se você mudar a assinatura
         break;
     }
   }
