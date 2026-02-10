@@ -11,16 +11,6 @@ type GuardState =
   | { status: "denied"; message: string }
   | { status: "error"; message: string };
 
-type IsEmailAllowedRpc = boolean | { is_email_allowed?: boolean } | null;
-
-function parseIsAllowed(data: IsEmailAllowedRpc) {
-  if (typeof data === "boolean") return data;
-  if (data && typeof data === "object" && "is_email_allowed" in data) {
-    return Boolean(data.is_email_allowed);
-  }
-  return false;
-}
-
 export default function AllowlistGuard({
   children,
 }: {
@@ -37,20 +27,20 @@ export default function AllowlistGuard({
       setState({ status: "checking" });
 
       const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-      if (userError) {
+      if (sessionError) {
         if (!cancelled) {
-          setState({ status: "error", message: userError.message });
+          setState({ status: "error", message: sessionError.message });
         }
         return () => {
           cancelled = true;
         };
       }
 
-      if (!user || !user.email) {
+      if (!session?.user) {
         if (pathname !== "/app/login") {
           router.replace("/app/login");
         }
@@ -62,30 +52,22 @@ export default function AllowlistGuard({
         };
       }
 
-      const { data: rpcData, error: rpcError } = await supabase.rpc(
-        "is_email_allowed",
-        { email: user.email },
-      );
+      const { data: row, error: allowlistError } = await supabase
+        .from("allowed_users")
+        .select("user_id")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
 
-      if (rpcError) {
-        console.warn("allowlist rpc error", {
-          message: rpcError.message,
-          code: rpcError.code,
-          details: rpcError.details,
-          hint: rpcError.hint,
-        });
-
+      if (allowlistError) {
         if (!cancelled) {
-          setState({ status: "error", message: "Falha ao validar allowlist." });
+          setState({ status: "error", message: allowlistError.message });
         }
         return () => {
           cancelled = true;
         };
       }
 
-      const isAllowed = parseIsAllowed(rpcData as IsEmailAllowedRpc);
-
-      if (!isAllowed) {
+      if (!row) {
         if (!cancelled) {
           setState({
             status: "denied",
@@ -129,7 +111,11 @@ export default function AllowlistGuard({
   }, [verify]);
 
   if (state.status === "checking") {
-    return <div className="p-4 text-sm text-muted-foreground">Verificando acesso…</div>;
+    return (
+      <div className="p-4 text-sm text-muted-foreground">
+        Verificando acesso…
+      </div>
+    );
   }
 
   if (state.status === "allowed") {
@@ -139,7 +125,9 @@ export default function AllowlistGuard({
   if (state.status === "error") {
     return (
       <div className="space-y-3 p-4">
-        <p className="text-sm text-red-400">Falha ao verificar acesso: {state.message}</p>
+        <p className="text-sm text-red-400">
+          Falha ao verificar acesso: {state.message}
+        </p>
         <Button onClick={() => void verify()} className="rounded-2xl">
           Tentar novamente
         </Button>

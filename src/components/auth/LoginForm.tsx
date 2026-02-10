@@ -19,7 +19,28 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const emailClean = email.trim().toLowerCase();
+
+      const { data: allowed, error: allowErr } = await supabase.rpc(
+        "is_email_allowed",
+        { p_email: emailClean },
+      );
+
+      if (allowErr) {
+        console.error("allowlist rpc error", allowErr);
+        toast.error("Falha ao verificar acesso.");
+        return;
+      }
+
+      if (!allowed) {
+        toast.error("Acesso não autorizado.");
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailClean,
+        password,
+      });
 
       if (error) {
         const message =
@@ -32,7 +53,8 @@ export default function LoginForm() {
         return;
       }
 
-      const nextRoute = new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
+      const nextRoute =
+        new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
       toast.success("Login realizado com sucesso.");
       router.replace(nextRoute);
     } catch (error) {
