@@ -1,5 +1,14 @@
-import LoginForm from "@/components/auth/LoginForm";
+import { Suspense } from "react";
+import LoginClient from "./LoginClient";
 
-export default function AppLoginPage() {
-  return <LoginForm />;
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
+      }
+    >
+      <LoginClient />
+    </Suspense>
+  );
 }
