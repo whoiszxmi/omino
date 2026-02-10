@@ -13,7 +13,7 @@ export default function Bootstrap({ children }: { children: React.ReactNode }) {
       const user = data.user;
 
       if (!user) {
-        location.href = "/login";
+        location.href = "/app/login";
         return;
       }
 

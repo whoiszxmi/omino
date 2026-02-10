@@ -63,7 +63,7 @@ export default function AllowlistGuard({
           Este app é privado. Se você deveria ter acesso, fale com o
           administrador.
         </div>
-        <a className="mt-4 inline-block underline" href="/login">
+        <a className="mt-4 inline-block underline" href="/app/login">
           Voltar para login
         </a>
       </div>
