@@ -9,14 +9,14 @@ export async function GET(request: Request) {
   const code = url.searchParams.get("code");
 
   if (!code || !supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.redirect(new URL("/app/login", url.origin));
+    return NextResponse.redirect(new URL("/login", url.origin));
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    const loginUrl = new URL("/app/login", url.origin);
+    const loginUrl = new URL("/login", url.origin);
     loginUrl.searchParams.set("error", "callback_failed");
     return NextResponse.redirect(loginUrl);
   }

@@ -21,7 +21,7 @@ export default function AllowlistGuard({
 
       if (!user) {
         document.cookie = `${AUTH_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
-        window.location.replace("/app/login");
+        window.location.replace("/login");
         return;
       }
 
