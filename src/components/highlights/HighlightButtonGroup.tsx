@@ -12,22 +12,20 @@ import { supabase } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 type Props = {
-  targetType: HighlightTargetType;
+  targetType: "post" | "wiki";
   targetId: string;
-  title?: string;
+  title: string;
   coverUrl?: string | null;
 
-  // ✅ ADICIONAR ISSO:
-  onToggle?: (
-    scope: HighlightScope,
-    highlighted: boolean,
-    payload: {
-      targetType: HighlightTargetType;
-      targetId: string;
-      title?: string;
-      coverUrl?: string | null;
-    },
-  ) => void;
+  // ✅ ADICIONE ISSO
+  onChange?: (payload: {
+    scope: "profile" | "community";
+    highlighted: boolean;
+    targetType: "post" | "wiki";
+    targetId: string;
+    title?: string;
+    coverUrl?: string | null;
+  }) => void;
 };
 
 type HighlightState = {
