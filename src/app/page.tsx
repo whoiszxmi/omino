@@ -8,7 +8,7 @@ export default function HomePage() {
       <header className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Uzure</h1>
         <Button size="sm" variant="secondary" asChild>
-          <Link href="/app/login">Entrar</Link>
+          <Link href="/login">Entrar</Link>
         </Button>
       </header>
 
