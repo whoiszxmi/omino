@@ -263,10 +263,9 @@ export default function RichTextEditor({
         "data-placeholder": placeholder,
       } as any,
       handleDOMEvents: {
-        keydown: (_view, event) => {
+        keydown: (_view: unknown, event: Event) => {
           const e = event as KeyboardEvent;
 
-          // Ctrl/Cmd + K (link)
           if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
             e.preventDefault();
             toggleLink(editor);
