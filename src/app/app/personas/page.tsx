@@ -37,7 +37,7 @@ export default function PersonasPage() {
 
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) {
-      setErrorMsg("Você não está logado. Vá para /login.");
+      setErrorMsg("Você não está logado. Vá para /app/login.");
       setLoading(false);
       return;
     }
@@ -68,7 +68,7 @@ export default function PersonasPage() {
 
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) {
-      setErrorMsg("Sessão expirada. Vá para /login.");
+      setErrorMsg("Sessão expirada. Vá para /app/login.");
       return;
     }
 
