@@ -42,14 +42,10 @@ type Props = {
 
   imageInsertMode?: "inline" | "tag" | "both";
 
-  /**
-   * Amino-like toolbar fixa e editor confortável
-   */
+  /** Amino-like toolbar fixa e editor confortável */
   aminoStyle?: boolean;
 
-  /**
-   * Mostrar ferramentas de tabela (Wiki)
-   */
+  /** Mostrar ferramentas de tabela (Wiki) */
   enableTables?: boolean;
 };
 
@@ -212,6 +208,25 @@ export default function RichTextEditor({
 
   const editorCss = useMemo(() => getEditorCss(), []);
 
+  // ===== helpers dependentes do editor (mas podem ser usados em eventos) =====
+  function toggleLink(ed: any) {
+    if (!ed) return;
+
+    if (ed.isActive("link")) {
+      ed.chain().focus().unsetLink().run();
+      return;
+    }
+
+    const previousUrl = ed.getAttributes("link")?.href as string | undefined;
+    const url = window.prompt("Cole o link:", previousUrl ?? "https://");
+    if (!url) return;
+
+    const clean = url.trim();
+    if (!clean) return;
+
+    ed.chain().focus().setLink({ href: clean }).run();
+  }
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -254,16 +269,16 @@ export default function RichTextEditor({
           // Ctrl/Cmd + K (link)
           if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
             e.preventDefault();
-            toggleLink();
+            toggleLink(editor);
             return true;
           }
           return false;
         },
-      },
+      } as any,
     },
   });
 
-  const active = useEditorState({
+  const active = useEditorState<ActiveState>({
     editor,
     selector: (ctx) => {
       const ed = ctx?.editor;
@@ -286,7 +301,7 @@ export default function RichTextEditor({
         canBullet: ed.can().chain().focus().toggleBulletList().run(),
 
         canInsertTable:
-          enableTables &&
+          !!enableTables &&
           ed
             .can()
             .chain()
@@ -295,25 +310,26 @@ export default function RichTextEditor({
             .run(),
 
         canAddRow:
-          enableTables &&
+          !!enableTables &&
           inTable &&
           ed.can().chain().focus().addRowAfter().run(),
         canAddCol:
-          enableTables &&
+          !!enableTables &&
           inTable &&
           ed.can().chain().focus().addColumnAfter().run(),
         canToggleHeaderRow:
-          enableTables &&
+          !!enableTables &&
           inTable &&
           ed.can().chain().focus().toggleHeaderRow().run(),
         canDeleteTable:
-          enableTables &&
+          !!enableTables &&
           inTable &&
           ed.can().chain().focus().deleteTable().run(),
       };
     },
   });
 
+  // mantém o conteúdo em sync sem loop
   useEffect(() => {
     if (!editor) return;
     const current = editor.getHTML();
@@ -327,8 +343,9 @@ export default function RichTextEditor({
     const user = userData.user;
     if (!user) throw new Error("Não logado.");
 
-    if (file.size > 2_500_000)
+    if (file.size > 2_500_000) {
       throw new Error("Imagem muito grande. Use até ~2.5MB.");
+    }
 
     const ext = file.name.split(".").pop() || "png";
     const path = `${folder}/${user.id}/${crypto.randomUUID()}.${ext}`;
@@ -365,28 +382,7 @@ export default function RichTextEditor({
     }
   }
 
-  function toggleLink() {
-    if (!editor) return;
-
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-
-    const previousUrl = editor.getAttributes("link")?.href as
-      | string
-      | undefined;
-
-    const url = window.prompt("Cole o link:", previousUrl ?? "https://");
-    if (!url) return;
-
-    const clean = url.trim();
-    if (!clean) return;
-
-    editor.chain().focus().setLink({ href: clean }).run();
-  }
-
-  // ===== Table actions (only used when enableTables) =====
+  // ===== Table actions =====
   function insertTable2x2() {
     if (!editor) return;
     editor
@@ -395,22 +391,18 @@ export default function RichTextEditor({
       .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
       .run();
   }
-
   function addRowAfter() {
     if (!editor) return;
     editor.chain().focus().addRowAfter().run();
   }
-
   function addColAfter() {
     if (!editor) return;
     editor.chain().focus().addColumnAfter().run();
   }
-
   function toggleHeaderRow() {
     if (!editor) return;
     editor.chain().focus().toggleHeaderRow().run();
   }
-
   function deleteTable() {
     if (!editor) return;
     editor.chain().focus().deleteTable().run();
@@ -418,12 +410,16 @@ export default function RichTextEditor({
 
   if (!editor) return null;
 
+  // ✅ garante que nunca é null
+  const a: ActiveState = active ?? EMPTY_ACTIVE;
+
+  // ToggleGroup (somente as flags que existem)
   const value: string[] = [];
-  if (active.bold) value.push("bold");
-  if (active.italic) value.push("italic");
-  if (active.underline) value.push("underline");
-  if (active.bullet) value.push("bullet");
-  if (active.link) value.push("link");
+  if (a.bold) value.push("bold");
+  if (a.italic) value.push("italic");
+  if (a.underline) value.push("underline");
+  if (a.bullet) value.push("bullet");
+  if (a.link) value.push("link");
 
   function onToggle(next: string[]) {
     const prev = new Set(value);
@@ -448,14 +444,13 @@ export default function RichTextEditor({
         editor.chain().focus().toggleBulletList().run();
         break;
       case "link":
-        toggleLink();
+        toggleLink(editor);
         break;
     }
   }
 
   return (
     <div className="space-y-2">
-      {/* ✅ styled-jsx precisa de string/identificador */}
       <style jsx global>
         {editorCss}
       </style>
@@ -471,7 +466,7 @@ export default function RichTextEditor({
             value="bold"
             title="Negrito"
             aria-label="Negrito"
-            disabled={!active.canBold}
+            disabled={!a.canBold}
             className="rounded-full border px-3"
           >
             <Bold className="h-4 w-4" />
@@ -481,7 +476,7 @@ export default function RichTextEditor({
             value="italic"
             title="Itálico"
             aria-label="Itálico"
-            disabled={!active.canItalic}
+            disabled={!a.canItalic}
             className="rounded-full border px-3"
           >
             <Italic className="h-4 w-4" />
@@ -491,7 +486,7 @@ export default function RichTextEditor({
             value="underline"
             title="Sublinhar"
             aria-label="Sublinhar"
-            disabled={!active.canUnderline}
+            disabled={!a.canUnderline}
             className="rounded-full border px-3"
           >
             <UnderlineIcon className="h-4 w-4" />
@@ -501,7 +496,7 @@ export default function RichTextEditor({
             value="bullet"
             title="Lista"
             aria-label="Lista"
-            disabled={!active.canBullet}
+            disabled={!a.canBullet}
             className="rounded-full border px-3"
           >
             <List className="h-4 w-4" />
@@ -510,7 +505,7 @@ export default function RichTextEditor({
           <ToggleGroupItem
             value="link"
             title="Link (Ctrl+K)"
-            aria-label={active.link ? "Remover link" : "Inserir link"}
+            aria-label={a.link ? "Remover link" : "Inserir link"}
             className="rounded-full border px-3"
           >
             <Link2 className="h-4 w-4" />
@@ -559,7 +554,6 @@ export default function RichTextEditor({
           </Button>
         )}
 
-        {/* TABELAS (só quando enableTables=true) */}
         {enableTables && (
           <div className="flex flex-wrap items-center gap-2">
             <div className="mx-1 h-6 w-px bg-border" />
@@ -570,7 +564,7 @@ export default function RichTextEditor({
               size="sm"
               className="rounded-full"
               onClick={insertTable2x2}
-              disabled={!active.canInsertTable}
+              disabled={!a.canInsertTable}
               title="Inserir tabela 2x2"
             >
               <Table2 className="mr-2 h-4 w-4" />
@@ -583,7 +577,7 @@ export default function RichTextEditor({
               size="sm"
               className="rounded-full"
               onClick={addRowAfter}
-              disabled={!active.canAddRow}
+              disabled={!a.canAddRow}
               title="Adicionar linha"
             >
               <Rows className="mr-2 h-4 w-4" />
@@ -596,7 +590,7 @@ export default function RichTextEditor({
               size="sm"
               className="rounded-full"
               onClick={addColAfter}
-              disabled={!active.canAddCol}
+              disabled={!a.canAddCol}
               title="Adicionar coluna"
             >
               <Columns className="mr-2 h-4 w-4" />
@@ -609,7 +603,7 @@ export default function RichTextEditor({
               size="sm"
               className="rounded-full"
               onClick={toggleHeaderRow}
-              disabled={!active.canToggleHeaderRow}
+              disabled={!a.canToggleHeaderRow}
               title="Alternar cabeçalho"
             >
               <Heading className="mr-2 h-4 w-4" />
@@ -622,7 +616,7 @@ export default function RichTextEditor({
               size="sm"
               className="rounded-full"
               onClick={deleteTable}
-              disabled={!active.canDeleteTable}
+              disabled={!a.canDeleteTable}
               title="Remover tabela"
             >
               <Trash2 className="mr-2 h-4 w-4" />
