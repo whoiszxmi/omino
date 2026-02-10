@@ -140,7 +140,7 @@ export default function ProfilePage() {
 
     if (!user) {
       setLoading(false);
-      location.href = "/login";
+      location.href = "/app/login";
       return;
     }
 
