@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
+const AUTH_COOKIE = "omino-auth";
+
 export default function AllowlistGuard({
   children,
 }: {
@@ -18,7 +20,8 @@ export default function AllowlistGuard({
       const user = data.user;
 
       if (!user) {
-        if (mounted) setOk(false);
+        document.cookie = `${AUTH_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
+        window.location.replace("/login");
         return;
       }
 
@@ -30,9 +33,12 @@ export default function AllowlistGuard({
 
       if (error || !row) {
         await supabase.auth.signOut();
+        document.cookie = `${AUTH_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
         if (mounted) setOk(false);
         return;
       }
+
+      document.cookie = `${AUTH_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax; Secure`;
 
       if (mounted) setOk(true);
     })();
