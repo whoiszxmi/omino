@@ -17,15 +17,17 @@ type Props = {
   title: string;
   coverUrl?: string | null;
 
-  // ✅ ADICIONE ISSO
-  onChange?: (payload: {
-    scope: "profile" | "community";
-    highlighted: boolean;
-    targetType: "post" | "wiki";
-    targetId: string;
-    title?: string;
-    coverUrl?: string | null;
-  }) => void;
+  // ✅ ADICIONE ISTO
+  onToggle?: (
+    scope: "profile" | "community",
+    highlighted: boolean,
+    payload: {
+      targetType: "post" | "wiki";
+      targetId: string;
+      title?: string;
+      coverUrl?: string | null;
+    },
+  ) => void;
 };
 
 type HighlightState = {
@@ -40,7 +42,7 @@ export default function HighlightButtonGroup({
   targetId,
   title,
   coverUrl,
-  onChange,
+  onToggle,
 }: Props) {
   const [state, setState] = useState<HighlightState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -112,9 +114,7 @@ export default function HighlightButtonGroup({
 
       setState((prev) => ({ ...prev, [scope]: result.highlighted }));
 
-      onChange?.({
-        scope: "community",
-        highlighted: nextValue,
+      onToggle?.("profile", nextHighlighted, {
         targetType,
         targetId,
         title,
