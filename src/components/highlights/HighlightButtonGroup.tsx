@@ -112,7 +112,9 @@ export default function HighlightButtonGroup({
 
       setState((prev) => ({ ...prev, [scope]: result.highlighted }));
 
-      onChange?.(scope, result.highlighted, {
+      onChange?.({
+        scope: "community",
+        highlighted: nextValue,
         targetType,
         targetId,
         title,
