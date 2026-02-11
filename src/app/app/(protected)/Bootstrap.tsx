@@ -19,11 +19,6 @@ export default function Bootstrap({ children }: { children: React.ReactNode }) {
           error,
         } = await supabase.auth.getSession();
 
-        console.log("[bootstrap] session", {
-          hasSession: !!session,
-          userId: session?.user?.id ?? null,
-        });
-
         if (error) {
           if (!cancelled) setMsg(`Erro de sessão: ${error.message}`);
           return;
