@@ -16,11 +16,13 @@ export default function LoginForm() {
   const [loading, setLoading] = useState(false);
 
   async function handleLogin() {
-    setLoading(true);
+    if (loading) return;
 
+    setLoading(true);
     try {
       const emailClean = email.trim().toLowerCase();
 
+      // 1) allowlist
       const { data: allowed, error: allowErr } = await supabase.rpc(
         "is_email_allowed",
         { p_email: emailClean },
@@ -37,29 +39,34 @@ export default function LoginForm() {
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      // 2) login
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
         email: emailClean,
         password,
       });
 
-      if (error) {
-        const message =
-          error.message.toLowerCase().includes("invalid") ||
-          error.message.toLowerCase().includes("unauthorized")
-            ? "E-mail ou senha inválidos, ou acesso não autorizado."
-            : error.message;
+      if (signInErr) {
+        const msg = signInErr.message.toLowerCase();
+        const friendly =
+          msg.includes("invalid") || msg.includes("unauthorized")
+            ? "E-mail ou senha inválidos."
+            : signInErr.message;
 
-        toast.error(message);
+        toast.error(friendly);
         return;
       }
 
+      // 3) redirect
       const nextRoute =
         new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
+
       toast.success("Login realizado com sucesso.");
       router.replace(nextRoute);
-    } catch (error) {
+      router.refresh();
+    } catch (err: unknown) {
+      console.error(err);
       const message =
-        error instanceof Error ? error.message : "Falha inesperada no login.";
+        err instanceof Error ? err.message : "Falha inesperada no login.";
       toast.error(message);
     } finally {
       setLoading(false);
@@ -72,6 +79,7 @@ export default function LoginForm() {
         <CardHeader>
           <CardTitle className="text-base">Entrar</CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-3">
           <Input
             placeholder="seuemail@exemplo.com"
@@ -80,6 +88,7 @@ export default function LoginForm() {
             inputMode="email"
             autoComplete="email"
           />
+
           <Input
             placeholder="Sua senha"
             value={password}
@@ -87,10 +96,11 @@ export default function LoginForm() {
             type="password"
             autoComplete="current-password"
           />
+
           <Button
             className="w-full rounded-2xl"
             onClick={handleLogin}
-            disabled={loading || !email || !password}
+            disabled={loading || !email.trim() || !password}
           >
             {loading ? "Entrando..." : "Entrar"}
           </Button>
