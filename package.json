@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prebuild": "node scripts/check-next-proxy-conflict.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.11",
