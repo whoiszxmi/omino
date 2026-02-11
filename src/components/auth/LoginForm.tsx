@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +19,27 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const emailClean = email.trim().toLowerCase();
 
-      console.log("[login] signInWithPassword", {
-        hasSession: !!data.session,
-        userId: data.user?.id ?? data.session?.user?.id ?? null,
+      const { data: allowed, error: allowErr } = await supabase.rpc(
+        "is_email_allowed",
+        { p_email: emailClean },
+      );
+
+      if (allowErr) {
+        console.error("allowlist rpc error", allowErr);
+        toast.error("Falha ao verificar acesso.");
+        return;
+      }
+
+      if (!allowed) {
+        toast.error("Acesso não autorizado.");
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailClean,
+        password,
       });
 
       if (error) {
@@ -37,15 +53,10 @@ export default function LoginForm() {
         return;
       }
 
-      if (!data.session) {
-        toast.error("Sessão não criada após login. Verifique confirmação de e-mail e configurações de Auth.");
-        return;
-      }
-
-      const nextRoute = new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
+      const nextRoute =
+        new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
       toast.success("Login realizado com sucesso.");
       router.replace(nextRoute);
-      router.refresh();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Falha inesperada no login.";
@@ -54,27 +65,6 @@ export default function LoginForm() {
       setLoading(false);
     }
   }
-
-
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("[login] onAuthStateChange", {
-        event: _event,
-        hasSession: !!session,
-        userId: session?.user?.id ?? null,
-      });
-
-      if (session?.user) {
-        const nextRoute = new URLSearchParams(window.location.search).get("next") ?? "/app/feed";
-        router.replace(nextRoute);
-        router.refresh();
-      }
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, [router]);
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col p-4">
