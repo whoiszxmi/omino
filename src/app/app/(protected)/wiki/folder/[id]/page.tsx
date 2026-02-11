@@ -35,7 +35,7 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
     const user = userData.user;
     if (!user) {
       setLoading(false);
-      location.href = "/login";
+      location.href = "/app/login";
       return;
     }
 

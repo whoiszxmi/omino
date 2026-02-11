@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Omino
 
-## Getting Started
+Aplicação Next.js (App Router) com Supabase Auth.
 
-First, run the development server:
+## Ambiente
+
+Defina as variáveis abaixo (Vercel e `.env` local):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_SITE_URL=https://SEU_DOMINIO.vercel.app
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `NEXT_PUBLIC_SITE_URL` é usada para montar redirects de autenticação sem depender de `localhost`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Rotas públicas e protegidas
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Pública: `/app/login` (renderiza sempre, sem guard bloqueando cliques)
+- Protegidas: `/app/*` no grupo `(protected)` com verificação de sessão + allowlist.
 
-## Learn More
+Fluxo: `/app/login` -> autentica com email+senha -> `router.replace("/app/feed")`.
 
-To learn more about Next.js, take a look at the following resources:
+## Supabase: URL Configuration (obrigatório)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+No Supabase Dashboard: **Authentication > URL Configuration**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Site URL**
+  - `https://SEU_DOMINIO.vercel.app`
 
-## Deploy on Vercel
+- **Redirect URLs** (allowlist)
+  - `https://SEU_DOMINIO.vercel.app/app/login`
+  - `https://SEU_DOMINIO.vercel.app/app/*`
+  - `https://SEU_DOMINIO.vercel.app/auth/callback`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+> Se `redirect_to` não estiver nessa allowlist, o Supabase pode retornar
+> **"requested path is invalid"**.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Vercel Deployment Protection
+
+Se o link abrir a página de login da Vercel em vez do app:
+
+- Verifique em **Vercel Project > Settings > Deployment Protection**
+- Desative proteção para produção (ou ajuste regras de acesso), conforme sua política.
+
+## Desenvolvimento
+
+```bash
+npm install
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```
