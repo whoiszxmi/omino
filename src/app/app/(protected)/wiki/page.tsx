@@ -6,7 +6,7 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
@@ -29,10 +29,6 @@ type Wiki = {
   created_at: string;
   updated_at: string;
 };
-
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
 
 const FILTER_ALL = "all";
 const FILTER_NONE = "none";
@@ -82,8 +78,8 @@ export default function WikiHomePage() {
       return;
     }
 
-    setCats((catRes.data ?? []) as any);
-    setWikis((wikiRes.data ?? []) as any);
+    setCats((catRes.data ?? []) as Category[]);
+    setWikis((wikiRes.data ?? []) as Wiki[]);
     setLoading(false);
   }
 
@@ -128,9 +124,9 @@ export default function WikiHomePage() {
   }, [wikis, searchDebounced, catFilter]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
       {/* Header */}
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold">Wiki</h1>
           <p className="truncate text-xs text-muted-foreground">
@@ -140,10 +136,10 @@ export default function WikiHomePage() {
           </p>
         </div>
 
-        <div className="flex shrink-0 gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => router.push("/app/drafts")}
             title="Rascunhos"
           >
@@ -152,7 +148,7 @@ export default function WikiHomePage() {
           </Button>
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={load}
             title="Atualizar"
           >
@@ -161,9 +157,15 @@ export default function WikiHomePage() {
           </Button>
 
           <Button
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             disabled={!activePersona}
-            onClick={() => router.push("/app/wiki/new")}
+            onClick={() => {
+              if (!activePersona) {
+                toast.error("Selecione uma persona");
+                return;
+              }
+              router.push("/app/wiki/new");
+            }}
             title={
               !activePersona ? "Selecione uma persona para criar" : "Nova wiki"
             }
@@ -195,36 +197,35 @@ export default function WikiHomePage() {
         />
 
         {/* filtro por pasta */}
-        <div className="flex items-center gap-2">
-          <ToggleGroup
+        <div className="flex flex-col gap-2">
+          <Segmented
             type="single"
             value={catFilter}
             onValueChange={(v) => setCatFilter(v || FILTER_ALL)}
             className="flex flex-wrap gap-2"
           >
-            <ToggleGroupItem value={FILTER_ALL} className="rounded-2xl border">
+            <SegmentedItem value={FILTER_ALL}>
               Todas
-            </ToggleGroupItem>
-            <ToggleGroupItem value={FILTER_NONE} className="rounded-2xl border">
+            </SegmentedItem>
+            <SegmentedItem value={FILTER_NONE}>
               Sem pasta
-            </ToggleGroupItem>
+            </SegmentedItem>
 
             {rootCats.slice(0, 6).map((c) => (
-              <ToggleGroupItem
+              <SegmentedItem
                 key={c.id}
                 value={c.id}
-                className="rounded-2xl border"
                 title={c.name}
               >
                 {c.name}
-              </ToggleGroupItem>
+              </SegmentedItem>
             ))}
-          </ToggleGroup>
+          </Segmented>
 
           <Button
             type="button"
             variant="secondary"
-            className="ml-auto rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => router.push("/app/wiki/categories")}
             title="Ver todas as pastas"
           >
