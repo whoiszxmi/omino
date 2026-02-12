@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Globe, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -90,7 +89,7 @@ export default function PublicChatsPage() {
       </header>
 
       {loading ? (
-        <AppPageSkeleton compact />
+        <p className="text-sm text-muted-foreground">Carregando...</p>
       ) : chats.length === 0 ? (
         <Card className="rounded-2xl">
           <CardHeader>

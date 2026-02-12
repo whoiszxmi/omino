@@ -41,22 +41,12 @@ export default function NewPublicChatPage() {
 
     const { data: chat, error: chatError } = await supabase
       .from("chats")
-      .insert({
-        title: trimmed,
-        type: "public",
-        dm_user_a: null,
-        dm_user_b: null,
-      })
+      .insert({ title: trimmed, type: "public" })
       .select("id")
       .single();
 
     if (chatError || !chat) {
-      const msg = chatError?.message ?? "Não foi possível criar o chat público.";
-      if (msg.includes("chats_dm_consistency")) {
-        toast.error("Não foi possível criar esse chat agora. Tente novamente em instantes.");
-      } else {
-        toast.error(msg);
-      }
+      toast.error(chatError?.message ?? "Não foi possível criar o chat público.");
       setCreating(false);
       return;
     }
@@ -76,7 +66,6 @@ export default function NewPublicChatPage() {
     }
 
     toast.success("Chat público criado.");
-    setCreating(false);
     router.push(`/app/chats/${chat.id}`);
   }
 

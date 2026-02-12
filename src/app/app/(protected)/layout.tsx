@@ -274,17 +274,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    className="rounded-2xl md:hidden"
-                    onClick={() => setMobileNavOpen(true)}
-                    aria-label="Abrir menu"
-                  >
-                    <Menu className="h-4 w-4" />
-                  </Button>
-
                   <div className="md:hidden">
                     <Dialog open={open} onOpenChange={setOpen}>
                       <DialogTrigger asChild>
@@ -361,41 +350,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Bootstrap>{children}</Bootstrap>
             </main>
 
-            <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-              <DialogContent className="left-0 top-0 h-dvh max-w-[280px] translate-x-0 translate-y-0 rounded-none rounded-r-3xl p-0 md:hidden">
-                <DialogHeader className="border-b p-4">
-                  <DialogTitle>Atalhos</DialogTitle>
-                </DialogHeader>
+            <nav className="sticky bottom-0 z-10 border-t bg-background/85 backdrop-blur md:hidden">
+              <div className="mx-auto grid w-full max-w-2xl grid-cols-6 gap-1 px-2 py-2">
+                {navItems.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  const Icon = item.icon;
 
-                <nav className="space-y-2 p-3">
-                  {navItems.map((item) => {
-                    const active = isActive(pathname, item.href);
-                    const Icon = item.icon;
-
-                    return (
-                      <button
-                        key={item.href}
-                        type="button"
-                        className={cx(
-                          "flex w-full items-center justify-between rounded-2xl px-3 py-3 text-sm transition",
-                          active ? "bg-muted font-medium" : "hover:bg-muted/60",
-                        )}
-                        onClick={() => {
-                          router.push(item.href);
-                          setMobileNavOpen(false);
-                        }}
-                      >
-                        <span className="flex items-center gap-3">
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </span>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    );
-                  })}
-                </nav>
-              </DialogContent>
-            </Dialog>
+                  return (
+                    <button
+                      key={item.href}
+                      onClick={() => router.push(item.href)}
+                      className={cx(
+                        "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] transition",
+                        active ? "bg-muted font-medium" : "hover:bg-muted/60",
+                      )}
+                      type="button"
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
 
             <ActionToolbar hasPersona={!!activePersona} />
             <CreateChooser

@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { renderRichHtml } from "@/lib/render/richText";

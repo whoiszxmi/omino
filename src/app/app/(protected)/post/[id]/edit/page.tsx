@@ -7,7 +7,6 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";

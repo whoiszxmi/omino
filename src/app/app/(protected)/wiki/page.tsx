@@ -136,7 +136,7 @@ export default function WikiHomePage() {
           </p>
         </div>
 
-        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"

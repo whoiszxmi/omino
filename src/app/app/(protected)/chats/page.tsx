@@ -17,8 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
-import { Plus, RefreshCw } from "lucide-react";
-import PublicChatsList, { type PublicChatItem } from "@/components/chats/PublicChatsList";
+import { Globe, Plus, RefreshCw } from "lucide-react";
 import MyChatsList, { type MyChatItem } from "@/components/chats/MyChatsList";
 
 type ProfileRow = {
@@ -39,22 +38,14 @@ type RpcRow = {
   other_username?: string | null;
 };
 
-type ChatRow = {
-  id: string;
-  title: string | null;
-  last_message_at: string | null;
-  last_message_text: string | null;
-};
-
 export default function ChatsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
-  const [publicChats, setPublicChats] = useState<PublicChatItem[]>([]);
   const [myChats, setMyChats] = useState<MyChatItem[]>([]);
-  const [section, setSection] = useState<"public" | "mine">("public");
+  const [section, setSection] = useState<"public" | "group" | "dm">("public");
 
   const [open, setOpen] = useState(false);
   const [createType, setCreateType] = useState<"group" | "dm">("group");
@@ -72,30 +63,12 @@ export default function ChatsPage() {
 
   async function loadChats() {
     setLoading(true);
+    const myRes = await supabase.rpc("list_my_chats");
 
-    const [publicRes, myRes] = await Promise.all([
-      supabase
-        .from("chats")
-        .select("id,title,last_message_at,last_message_text")
-        .eq("type", "public")
-        .order("last_message_at", { ascending: false, nullsFirst: false }),
-      supabase.rpc("list_my_chats"),
-    ]);
-
-    if (publicRes.error) toast.error(publicRes.error.message);
     if (myRes.error) toast.error(myRes.error.message);
 
     const publicRows = (publicRes.data ?? []) as ChatRow[];
     const mineRows = (myRes.data ?? []) as RpcRow[];
-
-    const myIds = new Set(mineRows.map((row) => row.id));
-
-    setPublicChats(
-      publicRows.map((row) => ({
-        ...row,
-        participant: myIds.has(row.id),
-      })),
-    );
 
     setMyChats(
       mineRows.map((row) => {
@@ -234,17 +207,29 @@ export default function ChatsPage() {
     [createType, selectedUserId, title],
   );
 
+  const filteredChats = useMemo(() => {
+    if (section === "dm") {
+      return myChats.filter((chat) => chat.type === "dm");
+    }
+
+    if (section === "group") {
+      return myChats.filter((chat) => chat.type === "group");
+    }
+
+    return myChats.filter((chat) => chat.type === "public");
+  }, [myChats, section]);
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Chats</h1>
           <p className="text-sm text-muted-foreground">
-            Públicos e conversas onde você participa.
+            Públicos, grupos por convite e DMs 1:1.
           </p>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <div className="flex w-full gap-2 sm:w-auto">
           <Button
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"
@@ -356,32 +341,38 @@ export default function ChatsPage() {
             type="single"
             value={section}
             onValueChange={(v) =>
-              setSection((v as "public" | "mine") || "public")
+              setSection((v as "public" | "group" | "dm") || "public")
             }
           >
             <SegmentedItem value="public">Públicos</SegmentedItem>
-            <SegmentedItem value="mine">Meus chats</SegmentedItem>
+            <SegmentedItem value="group">Grupos</SegmentedItem>
+            <SegmentedItem value="dm">DMs</SegmentedItem>
           </Segmented>
+
+          {section === "public" ? (
+            <Button
+              className="w-full rounded-2xl"
+              variant="secondary"
+              onClick={() => router.push("/app/chats/public")}
+            >
+              <Globe className="mr-2 h-4 w-4" /> Explorar chats públicos
+            </Button>
+          ) : null}
         </CardContent>
       </Card>
 
       {loading ? (
-        <AppPageSkeleton compact />
-      ) : section === "public" ? (
-        <PublicChatsList
-          chats={publicChats}
-          onOpen={(chatId) => router.push(`/app/chats/${chatId}`)}
-          onJoined={async (chatId) => {
-            await loadChats();
-            router.push(`/app/chats/${chatId}`);
-          }}
-        />
+        <p className="text-sm text-muted-foreground">Carregando...</p>
       ) : (
         <MyChatsList
-          chats={myChats}
+          chats={filteredChats}
           onOpen={(chatId) => router.push(`/app/chats/${chatId}`)}
         />
       )}
+
+      <p className="text-xs text-muted-foreground">
+        Você já participa de {myChats.length} chats.
+      </p>
     </div>
   );
 }
