@@ -5,8 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { UsersRound } from "lucide-react";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
@@ -21,7 +19,9 @@ type UiMessage = {
     id: string;
     name: string;
     avatar_url: string | null;
+
     user_id: string | null;
+
     username: string | null;
     display_name: string | null;
     user_avatar: string | null;
@@ -33,7 +33,12 @@ type MessageRow = {
   persona_id: string;
   content: string;
   created_at: string;
-  personas: { id: string; user_id: string; name: string; avatar_url: string | null };
+  personas: {
+    id: string;
+    user_id: string | null;
+    name: string;
+    avatar_url: string | null;
+  };
 };
 
 type ProfileRow = {
@@ -44,7 +49,9 @@ type ProfileRow = {
 };
 
 function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    v,
+  );
 }
 
 function dayLabel(dateIso: string) {
@@ -74,12 +81,20 @@ export default function ChatRoomPage() {
   async function loadMessages(validChatId: string) {
     setLoading(true);
 
-    const chatRes = await supabase.from("chats").select("title").eq("id", validChatId).maybeSingle();
+    // título do chat (não bloqueia)
+    const chatRes = await supabase
+      .from("chats")
+      .select("title")
+      .eq("id", validChatId)
+      .maybeSingle();
+
     if (chatRes.data?.title) setChatTitle(chatRes.data.title);
 
     const { data, error } = await supabase
       .from("messages")
-      .select("id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)")
+      .select(
+        "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)",
+      )
       .eq("chat_id", validChatId)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -92,9 +107,15 @@ export default function ChatRoomPage() {
     }
 
     const rows = (data ?? []) as unknown as MessageRow[];
-    const userIds = [...new Set(rows.map((row) => row.personas.user_id))];
-    let profileMap = new Map<string, ProfileRow>();
 
+    // pega user_ids válidos (não-nulos)
+    const userIds = Array.from(
+      new Set(
+        rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
+      ),
+    );
+
+    let profileMap = new Map<string, ProfileRow>();
     if (userIds.length > 0) {
       const profilesRes = await supabase
         .from("profiles")
@@ -102,22 +123,32 @@ export default function ChatRoomPage() {
         .in("id", userIds);
 
       if (!profilesRes.error) {
-        profileMap = new Map((profilesRes.data ?? []).map((profile) => [profile.id, profile as ProfileRow]));
+        profileMap = new Map(
+          (profilesRes.data ?? []).map((profile) => [
+            profile.id,
+            profile as ProfileRow,
+          ]),
+        );
       }
     }
 
     setMessages(
       rows.map((row) => {
-        const profile = profileMap.get(row.personas.user_id);
+        const uid = row.personas.user_id;
+        const profile = uid ? profileMap.get(uid) : undefined;
+
         return {
           id: row.id,
           content: row.content,
           created_at: row.created_at,
           persona: {
-            id: row.persona_id,
+            // ✅ persona id de verdade:
+            id: row.personas.id,
             name: row.personas.name,
             avatar_url: row.personas.avatar_url,
+
             user_id: row.personas.user_id,
+
             username: profile?.username ?? null,
             display_name: profile?.display_name ?? null,
             user_avatar: profile?.avatar_url ?? null,
@@ -131,9 +162,11 @@ export default function ChatRoomPage() {
   }
 
   async function sendMessage() {
-    if (!chatId || !activePersona || sending) return;
+    if (!chatId || !isUuid(chatId)) return;
+    if (!activePersona || sending) return;
 
     const cleaned = (inputHtml || "").replace(/<p>\s*<\/p>/g, "").trim();
+
     if (!cleaned) return;
 
     setSending(true);
@@ -151,12 +184,17 @@ export default function ChatRoomPage() {
     }
 
     setInputHtml("");
+    // opcional: você pode só dar scroll e deixar realtime atualizar,
+    // mas manter loadMessages funciona bem (só é mais pesado).
     await loadMessages(chatId);
     setSending(false);
   }
 
-    if (error) {
-      toast.error(error.message);
+  // ✅ ESTE useEffect estava faltando (era o motivo do parse error)
+  useEffect(() => {
+    if (!chatId || !isUuid(chatId)) {
+      setLoading(false);
+      setMessages([]);
       return;
     }
 
@@ -166,7 +204,12 @@ export default function ChatRoomPage() {
       .channel(`chat-${chatId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `chat_id=eq.${chatId}` },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `chat_id=eq.${chatId}`,
+        },
         () => {
           void loadMessages(chatId);
         },
@@ -179,7 +222,11 @@ export default function ChatRoomPage() {
   }, [chatId]);
 
   const grouped = useMemo(() => {
-    const out: Array<{ kind: "day"; label: string } | { kind: "msg"; m: UiMessage; mine: boolean }> = [];
+    const out: Array<
+      | { kind: "day"; label: string }
+      | { kind: "msg"; m: UiMessage; mine: boolean }
+    > = [];
+
     let lastDay = "";
     for (const m of messages) {
       const label = dayLabel(m.created_at);
@@ -196,16 +243,31 @@ export default function ChatRoomPage() {
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3 md:px-6">
-          <Button variant="secondary" className="rounded-2xl" onClick={() => router.push("/app/chats")}>Voltar</Button>
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push("/app/chats")}
+          >
+            Voltar
+          </Button>
+
           <div className="text-center">
             <p className="text-lg font-semibold">{chatTitle}</p>
-            <p className="text-xs text-muted-foreground">{activePersona ? `Falando como ${activePersona.name}` : "Selecione uma persona"}</p>
+            <p className="text-xs text-muted-foreground">
+              {activePersona
+                ? `Falando como ${activePersona.name}`
+                : "Selecione uma persona"}
+            </p>
           </div>
+
           <div className="w-20" />
         </div>
       </header>
 
-      <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8">
+      <div
+        ref={listRef}
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+      >
         {!chatId || !isUuid(chatId) ? (
           <p className="text-sm text-muted-foreground">Chat inválido.</p>
         ) : loading ? (
@@ -215,34 +277,60 @@ export default function ChatRoomPage() {
             if (item.kind === "day") {
               return (
                 <div key={`day-${idx}`} className="flex justify-center">
-                  <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">{item.label}</span>
+                  <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                    {item.label}
+                  </span>
                 </div>
               );
             }
 
             const safe = DOMPurify.sanitize(renderRichHtml(item.m.content));
+
             return (
-              <div key={item.m.id} className={`flex ${item.mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+              <div
+                key={item.m.id}
+                className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] ${
+                    item.mine
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted"
+                  }`}
+                >
                   <UserCardModal
                     user={{
                       username: item.m.persona.username,
-                      display_name: item.m.persona.display_name ?? item.m.persona.name,
-                      avatar_url: item.m.persona.user_avatar ?? item.m.persona.avatar_url,
+                      display_name:
+                        item.m.persona.display_name ?? item.m.persona.name,
+                      avatar_url:
+                        item.m.persona.user_avatar ?? item.m.persona.avatar_url,
                     }}
                   >
-                    <button type="button" className="mb-2 flex items-center gap-2 text-left">
+                    <button
+                      type="button"
+                      className="mb-2 flex items-center gap-2 text-left"
+                    >
                       <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
                         {item.m.persona.avatar_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.m.persona.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                          <img
+                            src={item.m.persona.avatar_url}
+                            alt="avatar"
+                            className="h-full w-full object-cover"
+                          />
                         ) : null}
                       </div>
-                      <span className="text-xs font-semibold opacity-80">{item.m.persona.name}</span>
+                      <span className="text-xs font-semibold opacity-80">
+                        {item.m.persona.name}
+                      </span>
                     </button>
                   </UserCardModal>
 
-                  <div className="prose max-w-none break-words text-sm" dangerouslySetInnerHTML={{ __html: safe }} />
+                  <div
+                    className="prose max-w-none break-words text-sm"
+                    dangerouslySetInnerHTML={{ __html: safe }}
+                  />
                 </div>
               </div>
             );
@@ -256,7 +344,11 @@ export default function ChatRoomPage() {
           <RichTextEditor
             valueHtml={inputHtml}
             onChangeHtml={setInputHtml}
-            placeholder={activePersona ? `Mensagem como ${activePersona.name}` : "Selecione uma persona"}
+            placeholder={
+              activePersona
+                ? `Mensagem como ${activePersona.name}`
+                : "Selecione uma persona"
+            }
             compact
             bucket="media"
             folder="chats"
@@ -265,8 +357,13 @@ export default function ChatRoomPage() {
             aminoStyle
           />
         </div>
+
         <div className="mt-2 flex justify-end">
-          <Button className="rounded-2xl" onClick={() => void sendMessage()} disabled={!activePersona || sending}>
+          <Button
+            className="rounded-2xl"
+            onClick={() => void sendMessage()}
+            disabled={!activePersona || sending}
+          >
             {sending ? "Enviando..." : "Enviar"}
           </Button>
         </div>
