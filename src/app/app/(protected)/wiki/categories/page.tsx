@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { ChevronRight, FolderPlus, RefreshCw } from "lucide-react";
+import { useActivePersona } from "@/lib/persona/useActivePersona";
+import { ChevronRight, FolderPlus, Plus, RefreshCw } from "lucide-react";
 
 type Category = {
   id: string;
@@ -23,6 +24,7 @@ type Wiki = {
 
 export default function WikiCategoriesPage() {
   const router = useRouter();
+  const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState<Category[]>([]);
@@ -52,8 +54,8 @@ export default function WikiCategoriesPage() {
       // wikis é só pra contagem; não precisa travar a tela
     }
 
-    setCats((catRes.data ?? []) as any);
-    setWikis((wikiRes.data ?? []) as any);
+    setCats((catRes.data ?? []) as Category[]);
+    setWikis((wikiRes.data ?? []) as Wiki[]);
     setLoading(false);
   }
 
@@ -80,23 +82,23 @@ export default function WikiCategoriesPage() {
     try {
       const { error } = await supabase
         .from("wiki_categories")
-        .insert({ name, parent_id: null } as any);
+        .insert({ name, parent_id: null });
 
       if (error) throw error;
 
       toast.success("Pasta criada!");
       setNewName("");
       await load();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("ERRO create category:", e);
-      toast.error(e?.message ?? "Erro ao criar pasta.");
+      toast.error(e instanceof Error ? e.message : "Erro ao criar pasta.");
     } finally {
       setCreating(false);
     }
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
       <header className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold">Pastas</h1>
@@ -105,10 +107,10 @@ export default function WikiCategoriesPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto">
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={load}
             title="Atualizar"
           >
@@ -118,10 +120,24 @@ export default function WikiCategoriesPage() {
 
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => router.push("/app/wiki")}
           >
             Voltar
+          </Button>
+          <Button
+            className="w-full rounded-2xl sm:w-auto"
+            disabled={!activePersona}
+            onClick={() => {
+              if (!activePersona) {
+                toast.error("Selecione uma persona");
+                return;
+              }
+              router.push("/app/wiki/new");
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nova Wiki
           </Button>
         </div>
       </header>
@@ -131,7 +147,7 @@ export default function WikiCategoriesPage() {
           <CardTitle className="text-base">Criar pasta raiz</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
             <Input
               placeholder="Ex: Sistemas, Personagens..."
               value={newName}
