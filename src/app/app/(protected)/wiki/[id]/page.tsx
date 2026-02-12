@@ -100,7 +100,7 @@ export default function WikiViewPage() {
   if (loading) {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <div className="text-sm text-muted-foreground">Carregando...</div>
+        <AppPageSkeleton compact />
       </div>
     );
   }

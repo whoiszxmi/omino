@@ -137,7 +137,7 @@ export default function PostEditPage() {
     }
   }
 
-  if (loading) return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>;
+  if (loading) return <AppPageSkeleton compact />;
 
   if (!post) {
     return (

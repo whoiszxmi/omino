@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
@@ -133,7 +134,7 @@ export default function WikiEditPage() {
     router.push(`/app/wiki/${wiki.id}`);
   }
 
-  if (loading) return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>;
+  if (loading) return <AppPageSkeleton compact />;
   if (!wiki) return <div className="p-4 text-sm text-muted-foreground">Wiki não encontrada.</div>;
 
   return (

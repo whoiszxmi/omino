@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -66,6 +67,7 @@ export default function ChatsPage() {
 
     if (myRes.error) toast.error(myRes.error.message);
 
+    const publicRows = (publicRes.data ?? []) as ChatRow[];
     const mineRows = (myRes.data ?? []) as RpcRow[];
 
     setMyChats(
