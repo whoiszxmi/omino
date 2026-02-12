@@ -179,7 +179,7 @@ export default function PostEditPage() {
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
         <Card className="rounded-2xl">
           <CardHeader>
-            <CardTitle className="text-base">Sem permissão</CardTitle>
+            <CardTitle className="text-base">Sem Permissão</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div>
@@ -197,7 +197,7 @@ export default function PostEditPage() {
                 className="rounded-2xl"
                 onClick={() => router.push("/app/personas")}
               >
-                Trocar persona
+                Trocar Persona
               </Button>
             </div>
           </CardContent>
