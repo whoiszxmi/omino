@@ -12,6 +12,8 @@ import RichTextEditor from "@/components/editor/RichTextEditor";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
+import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
+import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 
 type Category = { id: string; name: string; parent_id: string | null };
 
@@ -29,6 +31,7 @@ export default function NewWikiPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
   const [saving, setSaving] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,12 +45,12 @@ export default function NewWikiPage() {
     draftKey: "new",
     personaId: activePersona?.id ?? null,
     initialValue: initialDraft,
-    value: { title, contentHtml, coverUrl },
+    value: { title, contentHtml, coverUrl: backgroundColor },
     enabled: true,
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);
-      setCoverUrl(draft.coverUrl);
+      setBackgroundColor(draft.coverUrl ?? DEFAULT_DOC_BACKGROUND);
     },
   });
 
@@ -109,6 +112,10 @@ export default function NewWikiPage() {
 
   async function createWiki() {
     const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const contentWithBg = buildDocContent({
+      bodyHtml: sanitized,
+      backgroundColor,
+    });
 
     if (!activePersona) return toast.error("Selecione uma persona.");
     if (!title.trim()) return toast.error("Título é obrigatório.");
@@ -122,7 +129,7 @@ export default function NewWikiPage() {
         category_id: categoryId,
         title: title.trim(),
         cover_url: coverUrl,
-        content_html: sanitized,
+        content_html: contentWithBg,
       })
       .select("id")
       .single();
@@ -194,6 +201,9 @@ export default function NewWikiPage() {
             ))}
           </select>
 
+          <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <div className="rounded-2xl p-2" style={{ backgroundColor }}>
           <RichTextEditor
             valueHtml={contentHtml}
             onChangeHtml={setContentHtml}
@@ -202,6 +212,7 @@ export default function NewWikiPage() {
             imageInsertMode="both"
             enableTables
           />
+          </div>
 
           <Button className="w-full rounded-2xl" onClick={() => void createWiki()} disabled={saving || !activePersona}>
             {saving ? "Publicando..." : "Publicar Wiki"}

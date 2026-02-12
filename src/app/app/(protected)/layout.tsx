@@ -7,6 +7,7 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CreateChooser } from "@/components/app/CreateChooser";
+import { ActionToolbar } from "@/components/app/ActionToolbar";
 import AllowlistGuard from "@/components/auth/AllowlistGuard";
 
 import {
@@ -47,10 +48,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading, personas, activePersona, error, setActivePersona } =
     useActivePersona();
 
-  // modal criar (Post/Wiki)
   const [createOpen, setCreateOpen] = useState(false);
-
-  // modal trocar persona
   const [open, setOpen] = useState(false);
 
   const { title, action }: { title: string; action: Action } = useMemo(() => {
@@ -87,6 +85,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, [pathname]);
 
+  const canUseAction = !action?.requiresPersona || !!activePersona;
+
   const navItems = useMemo(
     () => [
       { href: "/app/feed", label: "Feed", icon: Home },
@@ -100,21 +100,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const canUseAction = !action?.requiresPersona || !!activePersona;
-
   return (
     <AllowlistGuard>
       <div className="min-h-dvh bg-background">
         <div className="mx-auto flex min-h-dvh w-full max-w-[1400px]">
-          {/* Sidebar desktop */}
           <aside className="hidden w-72 flex-col border-r bg-background md:flex">
             <div className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-lg font-semibold">Comunidade</div>
-                  <div className="text-xs text-muted-foreground">
-                    Uzure • Inc
-                  </div>
+                  <div className="text-xs text-muted-foreground">Uzure • Inc</div>
                 </div>
 
                 <Button
@@ -129,9 +124,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
 
               <div className="mt-3 rounded-2xl border p-3">
-                <div className="text-xs text-muted-foreground">
-                  Persona ativa
-                </div>
+                <div className="text-xs text-muted-foreground">Persona ativa</div>
                 <div className="mt-1 truncate text-sm font-medium">
                   {loading
                     ? "Carregando..."
@@ -168,10 +161,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                               <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-medium">
-                                    {p.name}{" "}
-                                    {activePersona?.id === p.id
-                                      ? "• ativa"
-                                      : ""}
+                                    {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
                                   </div>
                                   {p.bio && (
                                     <div className="truncate text-xs text-muted-foreground">
@@ -205,7 +195,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
-              {/* Botão Criar */}
               <div className="mt-3">
                 <Button
                   className="w-full rounded-2xl"
@@ -223,7 +212,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {/* Atalho contextual */}
               {action && (
                 <div className="mt-2">
                   <Button
@@ -268,15 +256,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </aside>
 
-          {/* Main */}
           <div className="flex min-h-dvh flex-1 flex-col">
-            {/* Topbar */}
             <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-              <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-3 py-3 sm:px-4 md:px-6">
+              <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-6">
                 <div className="min-w-0">
-                  <div className="truncate text-xl font-semibold">
-                    {title}
-                  </div>
+                  <div className="truncate text-xl font-semibold">{title}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {loading
                       ? "Carregando persona..."
@@ -287,39 +271,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    className="rounded-2xl"
-                    onClick={() => setCreateOpen(true)}
-                    disabled={!activePersona}
-                    title={!activePersona ? "Selecione uma persona" : "Criar"}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-
-                  {action && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="rounded-2xl"
-                      onClick={() => router.push(action.href)}
-                      disabled={!canUseAction}
-                      title={`${action.label} em ${title}`}
-                    >
-                      {action.label}
-                    </Button>
-                  )}
-
-                  {/* Trocar persona (mobile) */}
                   <div className="md:hidden">
                     <Dialog open={open} onOpenChange={setOpen}>
                       <DialogTrigger asChild>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="rounded-2xl"
-                        >
-                          Trocar
+                        <Button size="sm" variant="secondary" className="rounded-2xl">
+                          Trocar persona
                         </Button>
                       </DialogTrigger>
 
@@ -328,15 +284,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                           <DialogTitle>Escolher persona</DialogTitle>
                         </DialogHeader>
 
-                        {error && (
-                          <p className="text-sm text-red-400">{error}</p>
-                        )}
+                        {error && <p className="text-sm text-red-400">{error}</p>}
 
                         <div className="space-y-2">
                           {personas.length === 0 ? (
                             <p className="text-sm text-muted-foreground">
-                              Você ainda não tem personas. Crie em
-                              /app/personas.
+                              Você ainda não tem personas. Crie em /app/personas.
                             </p>
                           ) : (
                             personas.map((p) => (
@@ -344,10 +297,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="min-w-0">
                                     <div className="truncate text-sm font-medium">
-                                      {p.name}{" "}
-                                      {activePersona?.id === p.id
-                                        ? "• ativa"
-                                        : ""}
+                                      {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
                                     </div>
                                     {p.bio && (
                                       <div className="truncate text-xs text-muted-foreground">
@@ -380,11 +330,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     </Dialog>
                   </div>
 
-                  {/* Perfil (mobile) */}
                   <Button
                     size="sm"
                     variant="secondary"
-                    className="rounded-2xl md:hidden"
+                    className="rounded-2xl"
                     onClick={() => router.push("/app/profile")}
                     title="Perfil"
                   >
@@ -394,12 +343,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </header>
 
-            {/* Content */}
-            <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 md:px-6 md:py-5">
+            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 md:px-6 md:py-5">
               <Bootstrap>{children}</Bootstrap>
             </main>
 
-            {/* Bottom nav (mobile) */}
             <nav className="sticky bottom-0 z-10 border-t bg-background/85 backdrop-blur md:hidden">
               <div className="mx-auto grid w-full max-w-2xl grid-cols-6 gap-1 px-2 py-2">
                 {navItems.map((item) => {
@@ -424,7 +371,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </nav>
 
-            <CreateChooser open={createOpen} onOpenChange={setCreateOpen} />
+            <ActionToolbar hasPersona={!!activePersona} />
+            <CreateChooser
+              open={createOpen}
+              onOpenChange={setCreateOpen}
+              hasPersona={!!activePersona}
+            />
           </div>
         </div>
       </div>

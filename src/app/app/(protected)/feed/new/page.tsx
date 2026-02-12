@@ -3,10 +3,13 @@
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
+import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
@@ -14,7 +17,9 @@ import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 export default function NewPostPage() {
   const { activePersona } = useActivePersona();
 
+  const [title, setTitle] = useState("");
   const [contentHtml, setContentHtml] = useState("");
+  const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
   const [saving, setSaving] = useState(false);
 
   const initialDraft = useMemo(
@@ -27,13 +32,22 @@ export default function NewPostPage() {
     draftKey: "new",
     personaId: activePersona?.id ?? null,
     initialValue: initialDraft,
-    value: { title: null, contentHtml, coverUrl: null },
+    value: { title, contentHtml, coverUrl: backgroundColor },
     enabled: true,
-    onRestore: (draft) => setContentHtml(draft.contentHtml),
+    onRestore: (draft) => {
+      setTitle(draft.title ?? "");
+      setContentHtml(draft.contentHtml);
+      setBackgroundColor(draft.coverUrl ?? DEFAULT_DOC_BACKGROUND);
+    },
   });
 
   async function createPost() {
     const html = contentHtml.trim();
+
+    if (!title.trim()) {
+      toast.error("Título é obrigatório.");
+      return;
+    }
 
     if (!html || html === "<p></p>") return;
 
@@ -44,9 +58,15 @@ export default function NewPostPage() {
 
     setSaving(true);
 
+    const payload = buildDocContent({
+      title,
+      bodyHtml: html,
+      backgroundColor,
+    });
+
     const { error } = await supabase.from("posts").insert({
       persona_id: activePersona.id,
-      content: html,
+      content: payload,
     });
 
     setSaving(false);
@@ -81,19 +101,29 @@ export default function NewPostPage() {
         </CardHeader>
 
         <CardContent className="space-y-3">
-          <RichTextEditor
-            valueHtml={contentHtml}
-            onChangeHtml={setContentHtml}
-            placeholder="O que sua persona quer compartilhar?"
-            folder="posts"
-            imageInsertMode="both"
-            enableTables={false}
+          <Input
+            placeholder="Título do post"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
           />
+
+          <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <div className="rounded-2xl p-2" style={{ backgroundColor }}>
+            <RichTextEditor
+              valueHtml={contentHtml}
+              onChangeHtml={setContentHtml}
+              placeholder="O que sua persona quer compartilhar?"
+              folder="posts"
+              imageInsertMode="both"
+              enableTables={false}
+            />
+          </div>
 
           <Button
             className="w-full rounded-2xl"
             onClick={() => void createPost()}
-            disabled={saving || !activePersona || !contentHtml.trim() || contentHtml.trim() === "<p></p>"}
+            disabled={saving || !activePersona || !title.trim() || !contentHtml.trim() || contentHtml.trim() === "<p></p>"}
           >
             {saving ? "Publicando..." : "Publicar"}
           </Button>

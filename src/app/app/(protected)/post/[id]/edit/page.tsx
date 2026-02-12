@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
+import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
@@ -30,24 +33,36 @@ export default function PostEditPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [post, setPost] = useState<PostRow | null>(null);
+  const [title, setTitle] = useState("");
   const [contentHtml, setContentHtml] = useState("");
+  const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
 
-  const canEdit = useMemo(() => !!post && !!activePersona && post.persona_id === activePersona.id, [post, activePersona]);
+  const canEdit = useMemo(
+    () => !!post && !!activePersona && post.persona_id === activePersona.id,
+    [post, activePersona],
+  );
 
   const canSave = useMemo(() => {
-    const html = (contentHtml || "").trim();
-    const sanitized = html.replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
-    return !!sanitized;
-  }, [contentHtml]);
+    const html = (contentHtml || "")
+      .trim()
+      .replace(/<p>\s*<\/p>/g, "")
+      .replace(/<p><br><\/p>/g, "")
+      .trim();
+    return !!title.trim() && !!html;
+  }, [contentHtml, title]);
 
   const drafts = useDraftAutosave({
     scope: "post",
     draftKey: `edit:${postId}`,
     personaId: activePersona?.id ?? null,
     initialValue: { title: null, contentHtml: post?.content ?? "", coverUrl: null },
-    value: { title: null, contentHtml, coverUrl: null },
+    value: { title, contentHtml, coverUrl: backgroundColor },
     enabled: !!post,
-    onRestore: (draft) => setContentHtml(draft.contentHtml),
+    onRestore: (draft) => {
+      setTitle(draft.title ?? "");
+      setContentHtml(draft.contentHtml);
+      setBackgroundColor(draft.coverUrl ?? DEFAULT_DOC_BACKGROUND);
+    },
   });
 
   useEffect(() => {
@@ -73,8 +88,11 @@ export default function PostEditPage() {
       }
 
       const row = data as unknown as PostRow;
+      const parsed = parseDocContent(row.content ?? "");
       setPost(row);
-      setContentHtml(row.content ?? "");
+      setTitle(parsed.title);
+      setContentHtml(parsed.bodyHtml);
+      setBackgroundColor(parsed.backgroundColor);
       setLoading(false);
     }
 
@@ -85,13 +103,27 @@ export default function PostEditPage() {
     if (!post) return;
     if (!activePersona) return toast.error("Selecione uma persona.");
     if (!canEdit) return toast.error("Você não tem permissão para editar esse post.");
+    if (!title.trim()) return toast.error("Título é obrigatório.");
     if (!canSave) return toast.error("Escreva alguma coisa antes de salvar.");
 
-    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const sanitized = contentHtml
+      .trim()
+      .replace(/<p>\s*<\/p>/g, "")
+      .replace(/<p><br><\/p>/g, "")
+      .trim();
+
+    const payload = buildDocContent({
+      title,
+      bodyHtml: sanitized,
+      backgroundColor,
+    });
 
     setSaving(true);
     try {
-      const { error } = await supabase.from("posts").update({ content: sanitized }).eq("id", post.id);
+      const { error } = await supabase
+        .from("posts")
+        .update({ content: payload })
+        .eq("id", post.id);
       if (error) throw error;
 
       await drafts.discard();
@@ -153,7 +185,14 @@ export default function PostEditPage() {
       <Card className="rounded-2xl">
         <CardHeader><CardTitle className="text-base">Conteúdo</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite seu post..." folder="posts" imageInsertMode="both" enableTables={false} />
+          <Input placeholder="Título do post" value={title} onChange={(event) => setTitle(event.target.value)} />
+
+          <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <div className="rounded-2xl p-2" style={{ backgroundColor }}>
+            <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite seu post..." folder="posts" imageInsertMode="both" enableTables={false} />
+          </div>
+
           <Button className="w-full rounded-2xl" onClick={() => void save()} disabled={saving || !canSave}>
             {saving ? "Salvando..." : "Salvar alterações"}
           </Button>

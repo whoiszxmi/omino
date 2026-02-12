@@ -43,7 +43,19 @@ export function renderRichHtml(inputHtml: string) {
       "th",
       "td",
       "span",
+      "div",
+      "section",
     ],
-    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "class"],
+    ALLOWED_ATTR: [
+      "href",
+      "target",
+      "rel",
+      "src",
+      "alt",
+      "class",
+      "style",
+      "data-doc-bg",
+      "data-doc-title",
+    ],
   });
 }
