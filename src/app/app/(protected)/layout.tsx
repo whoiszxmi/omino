@@ -25,6 +25,7 @@ import {
   Plus,
   UserRound,
   Star,
+  FileText,
 } from "lucide-react";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -94,6 +95,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       { href: "/app/highlights", label: "Destaques", icon: Star },
       { href: "/app/personas", label: "Personas", icon: UsersRound },
       { href: "/app/profile", label: "Perfil", icon: UserRound },
+      { href: "/app/drafts", label: "Rascunhos", icon: FileText },
     ],
     [],
   );
