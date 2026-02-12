@@ -124,10 +124,10 @@ export default function LoginClient() {
           <CardContent className="flex h-full flex-col justify-between gap-5 p-5 sm:p-6">
             <div className="space-y-2">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Experiência Amino
+                Uzure v. 1.0.0
               </p>
               <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">
-                Mobile-first, sem perder o conforto no desktop.
+                U sure about that?
               </h1>
             </div>
 
@@ -147,7 +147,7 @@ export default function LoginClient() {
                 <div>
                   <p className="text-sm font-medium">Fluxo simples</p>
                   <p className="text-xs text-muted-foreground">
-                    Entre e vá direto para o feed, chats ou perfis.
+                    Jeito amino de ser.
                   </p>
                 </div>
               </div>
