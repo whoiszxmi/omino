@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -178,6 +179,36 @@ export default function ChatsPage() {
     setCreating(false);
   }
 
+  async function createPublic() {
+    const t = title.trim();
+    if (!t) return toast.error("Dê um título para o chat público.");
+
+    setCreating(true);
+    const { data, error } = await supabase.rpc("create_public_chat", {
+      p_title: t,
+    });
+
+    if (error) {
+      toast.error(error.message.includes("create_public_chat") ? "Recurso de chat público indisponível no momento." : error.message);
+      setCreating(false);
+      return;
+    }
+
+    const chatId = data as string | null;
+    if (!chatId) {
+      toast.error("Chat público não foi criado.");
+      setCreating(false);
+      return;
+    }
+
+    toast.success("Chat público criado.");
+    setOpen(false);
+    setTitle("");
+    await loadChats();
+    router.push(`/app/chats/${chatId}`);
+    setCreating(false);
+  }
+
   async function createDm() {
     if (!selectedUserId) return toast.error("Selecione um usuário.");
 
@@ -214,7 +245,10 @@ export default function ChatsPage() {
   }
 
   const canCreate = useMemo(
-    () => (createType === "group" ? !!title.trim() : !!selectedUserId),
+    () =>
+      createType === "group" || createType === "public"
+        ? !!title.trim()
+        : !!selectedUserId,
     [createType, selectedUserId, title],
   );
 
@@ -295,6 +329,12 @@ export default function ChatsPage() {
                       ))}
                     </div>
                   </>
+                ) : createType === "public" ? (
+                  <Input
+                    placeholder="Título do chat público"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
                 ) : (
                   <>
                     <Input

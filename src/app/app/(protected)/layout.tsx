@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
@@ -9,7 +8,6 @@ import { Card } from "@/components/ui/card";
 import { CreateChooser } from "@/components/app/CreateChooser";
 import { ActionToolbar } from "@/components/app/ActionToolbar";
 import AllowlistGuard from "@/components/auth/AllowlistGuard";
-
 import {
   Dialog,
   DialogContent,
@@ -42,6 +40,16 @@ function isActive(pathname: string, href: string) {
 }
 
 type Action = { label: string; href: string; requiresPersona?: boolean } | null;
+
+function pageAction(pathname: string): Action {
+  if (pathname.startsWith("/app/feed")) {
+    return { label: "Novo", href: "/app/feed/new", requiresPersona: true };
+  }
+  if (pathname.startsWith("/app/wiki")) {
+    return { label: "Nova", href: "/app/wiki/new", requiresPersona: true };
+  }
+  return null;
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/app";
@@ -115,43 +123,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <div className="text-xs text-muted-foreground">Uzure • Inc</div>
                 </div>
 
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="rounded-2xl"
-                  onClick={() => router.push("/app/profile")}
-                  title="Perfil"
-                >
-                  <UserRound className="h-4 w-4" />
-                </Button>
-              </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AppMobileNav className="md:hidden" />
 
               <div className="mt-3 rounded-2xl border p-3">
                 <div className="text-xs text-muted-foreground">Persona ativa</div>
                 <div className="mt-1 truncate text-sm font-medium">
                   {loading
-                    ? "Carregando..."
-                    : (activePersona?.name ?? "Sem persona")}
-                </div>
-
-                <div className="mt-3">
-                  <Dialog open={open} onOpenChange={setOpen}>
-                    <DialogTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="w-full rounded-2xl"
-                      >
-                        Trocar persona
-                      </Button>
-                    </DialogTrigger>
-
-                    <DialogContent className="rounded-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Escolher persona</DialogTitle>
-                      </DialogHeader>
-
-                      {error && <p className="text-sm text-red-400">{error}</p>}
+                    ? "Carregando persona..."
+                    : activePersona
+                      ? `Usando: ${activePersona.name}`
+                      : "Sem persona"}
+                </p>
+              </div>
 
                       <div className="space-y-2">
                         {personas.length === 0 ? (
@@ -172,31 +156,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                     </div>
                                   )}
                                 </div>
-
-                                <Button
-                                  size="sm"
-                                  className="rounded-2xl"
-                                  variant={
-                                    activePersona?.id === p.id
-                                      ? "secondary"
-                                      : "default"
-                                  }
-                                  onClick={async () => {
-                                    await setActivePersona(p.id);
-                                    setOpen(false);
-                                  }}
-                                >
-                                  {activePersona?.id === p.id ? "Ok" : "Usar"}
-                                </Button>
+                                {p.bio && (
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {p.bio}
+                                  </div>
+                                )}
                               </div>
-                            </Card>
-                          ))
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
 
               <div className="mt-3">
                 <Button
@@ -219,42 +184,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="mt-2">
                   <Button
                     variant="secondary"
-                    className="w-full rounded-2xl"
+                    className="rounded-2xl"
                     onClick={() => router.push(action.href)}
                     disabled={!canUseAction}
                   >
                     <Plus className="mr-2 h-4 w-4" />
-                    {action.label} ({title})
+                    {action.label}
                   </Button>
-                </div>
-              )}
-            </div>
+                ) : null}
 
-            <nav className="px-3 pb-4">
-              <div className="space-y-1">
-                {navItems.map((item) => {
-                  const active = isActive(pathname, item.href);
-                  const Icon = item.icon;
-                  return (
-                    <Link key={item.href} href={item.href} className="block">
-                      <div
-                        className={cx(
-                          "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition",
-                          active ? "bg-muted font-medium" : "hover:bg-muted/60",
-                        )}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {item.label}
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </nav>
-
-            <div className="mt-auto p-4">
-              <div className="text-[11px] text-muted-foreground">
-                Dica: Shift+Enter quebra linha no chat.
+                <Button
+                  className="rounded-2xl"
+                  onClick={() => setCreateOpen(true)}
+                  disabled={!activePersona}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Criar
+                </Button>
               </div>
             </div>
           </aside>
@@ -356,23 +301,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   const active = isActive(pathname, item.href);
                   const Icon = item.icon;
 
-                  return (
-                    <button
-                      key={item.href}
-                      onClick={() => router.push(item.href)}
-                      className={cx(
-                        "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] transition",
-                        active ? "bg-muted font-medium" : "hover:bg-muted/60",
-                      )}
-                      type="button"
-                    >
-                      <Icon className="h-5 w-5" />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </nav>
+          <main className="min-w-0 flex-1 px-4 py-4 md:px-8 md:py-6">
+            <Bootstrap>{children}</Bootstrap>
+          </main>
 
             <ActionToolbar hasPersona={!!activePersona} />
             <CreateChooser
