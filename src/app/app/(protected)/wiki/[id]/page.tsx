@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import DOMPurify from "isomorphic-dompurify";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { renderRichHtml } from "@/lib/render/richText";
@@ -96,15 +96,12 @@ export default function WikiViewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wikiId]);
 
-  const safeHtml = useMemo(() => {
-    const html = renderRichHtml(wiki?.content_html ?? "");
-    return DOMPurify.sanitize(html);
-  }, [wiki?.content_html]);
+  const safeHtml = useMemo(() => renderRichHtml(wiki?.content_html ?? ""), [wiki?.content_html]);
 
   if (loading) {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <div className="text-sm text-muted-foreground">Carregando...</div>
+        <AppPageSkeleton compact />
       </div>
     );
   }

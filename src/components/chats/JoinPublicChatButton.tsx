@@ -17,24 +17,16 @@ export default function JoinPublicChatButton({ chatId, onJoined }: Props) {
     if (joining) return;
     setJoining(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-    if (!user) {
-      toast.error("Você precisa estar logado.");
-      setJoining(false);
-      return;
-    }
-
-    const { error } = await supabase.from("chat_participants").upsert(
-      {
-        chat_id: chatId,
-        user_id: user.id,
-      },
-      { onConflict: "chat_id,user_id" },
-    );
+    const { error } = await supabase.rpc("join_public_chat", {
+      p_chat_id: chatId,
+    });
 
     if (error) {
-      toast.error(error.message);
+      toast.error(
+        error.message.includes("join_public_chat")
+          ? "Não foi possível entrar no chat público agora."
+          : error.message,
+      );
       setJoining(false);
       return;
     }

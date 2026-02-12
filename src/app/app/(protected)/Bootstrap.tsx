@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 
 export default function Bootstrap({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -64,8 +65,7 @@ export default function Bootstrap({ children }: { children: React.ReactNode }) {
     };
   }, [router]);
 
-  if (!ready)
-    return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>;
+  if (!ready) return <AppPageSkeleton compact />;
   if (msg) return <div className="p-4 text-sm text-red-400">{msg}</div>;
 
   return <>{children}</>;

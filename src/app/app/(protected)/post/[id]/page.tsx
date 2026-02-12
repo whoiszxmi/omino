@@ -6,8 +6,8 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import PostComments from "@/app/app/(protected)/feed/PostComments";
@@ -96,15 +96,12 @@ export default function PostViewPage() {
     toast.success("Post excluído.");
     router.push("/app/feed");
   }
-  const safeHtml = useMemo(() => {
-    const html = renderRichHtml(post?.content ?? "");
-    return DOMPurify.sanitize(html);
-  }, [post?.content]);
+  const safeHtml = useMemo(() => renderRichHtml(post?.content ?? ""), [post?.content]);
 
   if (loading) {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <div className="text-sm text-muted-foreground">Carregando...</div>
+        <AppPageSkeleton compact />
       </div>
     );
   }
