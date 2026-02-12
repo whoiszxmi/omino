@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import FollowListItem from "@/components/profile/FollowListItem";
 
 type Profile = {
   id: string;
@@ -12,120 +13,70 @@ type Profile = {
   avatar_url: string | null;
 };
 
+type FollowerRow = { follower_id: string };
+
 export default function FollowersPage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Profile[]>([]);
 
   async function load() {
     setLoading(true);
-
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+    if (!user) return setLoading(false);
 
-    // ids de quem ME segue
-    const { data: idsData, error: idsErr } = await supabase
+    const idsRes = await supabase
       .from("follows")
       .select("follower_id")
       .eq("following_id", user.id)
       .order("created_at", { ascending: false })
       .limit(200);
 
-    if (idsErr) {
-      console.error(idsErr);
+    if (idsRes.error) {
       setLoading(false);
       return;
     }
 
-    const ids = (idsData ?? []).map((x: any) => x.follower_id).filter(Boolean);
-
+    const ids = ((idsRes.data ?? []) as FollowerRow[]).map((row) => row.follower_id);
     if (ids.length === 0) {
       setRows([]);
       setLoading(false);
       return;
     }
 
-    const { data: profs, error: pErr } = await supabase
-      .from("profiles")
-      .select("id, username, display_name, avatar_url")
-      .in("id", ids);
-
-    if (pErr) {
-      console.error(pErr);
+    const profilesRes = await supabase.from("profiles").select("id,username,display_name,avatar_url").in("id", ids);
+    if (profilesRes.error) {
       setLoading(false);
       return;
     }
 
-    // mantém ordem (ids)
-    const map = new Map((profs ?? []).map((p: any) => [p.id, p]));
-    const ordered = ids.map((id) => map.get(id)).filter(Boolean) as any[];
-
-    setRows(ordered);
+    const map = new Map((profilesRes.data ?? []).map((profile) => [profile.id, profile as Profile]));
+    setRows(ids.map((id) => map.get(id)).filter((item): item is Profile => !!item));
     setLoading(false);
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-4 p-4 md:p-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Seguidores</h1>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          onClick={() => (location.href = "/app/profile")}
-        >
-          Voltar
-        </Button>
+        <h1 className="text-2xl font-semibold">Seguidores</h1>
+        <Button variant="secondary" className="rounded-2xl" onClick={() => (location.href = "/app/profile")}>Voltar</Button>
       </header>
 
       {loading ? (
         <div className="text-sm text-muted-foreground">Carregando...</div>
       ) : rows.length === 0 ? (
         <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Sem seguidores</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Ninguém seguiu você ainda.
-          </CardContent>
+          <CardHeader><CardTitle className="text-base">Sem seguidores</CardTitle></CardHeader>
+          <CardContent className="text-sm text-muted-foreground">Ninguém seguiu você ainda.</CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {rows.map((p) => (
-            <Card
-              key={p.id}
-              className="rounded-2xl cursor-pointer"
-              onClick={() => {
-                if (p.username) location.href = `/app/u/${p.username}`;
-              }}
-            >
-              <CardContent className="flex items-center gap-3 p-3">
-                <div className="h-10 w-10 overflow-hidden rounded-2xl border bg-muted">
-                  {p.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.avatar_url}
-                      alt="avatar"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {p.display_name ?? p.username ?? "Sem nome"}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    @{p.username ?? "sem-username"}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {rows.map((profile) => (
+            <FollowListItem key={profile.id} profile={profile} onOpenProfile={(username) => (location.href = `/app/u/${username}`)} />
           ))}
         </div>
       )}

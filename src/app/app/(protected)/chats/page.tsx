@@ -1,32 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Globe, MessageCircle, PlusCircle, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
-
-type ChatRow = {
-  id: string;
-  type: "group" | "dm";
-  title: string | null;
-  created_at: string;
-  last_message_at: string | null;
-  last_message_text: string | null;
-  dm_user_a?: string | null;
-  dm_user_b?: string | null;
-};
+import PublicChatsList, { type PublicChatItem } from "@/components/chats/PublicChatsList";
+import MyChatsList, { type MyChatItem } from "@/components/chats/MyChatsList";
 
 type ProfileRow = {
   id: string;
@@ -35,367 +21,349 @@ type ProfileRow = {
   avatar_url: string | null;
 };
 
-type ChatListItem = {
-  chat: ChatRow;
-  unread: boolean;
-  otherProfile: ProfileRow | null; // só para DM
-};
-
-type SupabaseErrorLike = {
-  message?: string;
-  code?: string;
-  details?: string;
-  hint?: string;
-};
-
-type RpcListMyChatsRow = {
-  // retornos esperados da RPC list_my_chats
+type RpcRow = {
   id: string;
-  type: "group" | "dm";
+  type: "group" | "dm" | "public";
   title: string | null;
-  created_at: string;
   last_message_at: string | null;
   last_message_text: string | null;
-  dm_user_a: string | null;
-  dm_user_b: string | null;
-  unread: boolean;
-
-  other_user_id: string | null;
-  other_username: string | null;
-  other_display_name: string | null;
-  other_avatar_url: string | null;
+  unread?: boolean;
+  other_display_name?: string | null;
+  other_username?: string | null;
 };
+
+type PublicChatRow = {
+  id: string;
+  title: string | null;
+  last_message_at: string | null;
+  last_message_text: string | null;
+};
+
+type ChatParticipantRow = {
+  chat_id: string;
+};
+
+function parseCreatorAllowlist(raw: string | undefined) {
+  if (!raw) return [];
+  return raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
 
 export default function ChatsPage() {
   const router = useRouter();
   const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<ChatListItem[]>([]);
+  const [publicChats, setPublicChats] = useState<PublicChatItem[]>([]);
+  const [myChats, setMyChats] = useState<MyChatItem[]>([]);
+  const [section, setSection] = useState<"public" | "mine">("public");
 
-  // dialog criar
   const [open, setOpen] = useState(false);
-  const [createType, setCreateType] = useState<"group" | "dm">("group");
+  const [createType, setCreateType] = useState<"group" | "dm" | "public">("group");
   const [title, setTitle] = useState("");
+  const [canCreatePublicChats, setCanCreatePublicChats] = useState(false);
 
-  // DM search
   const [userQuery, setUserQuery] = useState("");
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [users, setUsers] = useState<ProfileRow[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
+  const [inviteQuery, setInviteQuery] = useState("");
+  const [inviteResults, setInviteResults] = useState<ProfileRow[]>([]);
+  const [inviting, setInviting] = useState(false);
   const [creating, setCreating] = useState(false);
 
   async function loadChats() {
     setLoading(true);
-
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
-
     if (!user) {
-      setItems([]);
       setLoading(false);
       return;
     }
 
-    try {
-      // ✅ LISTA VIA RPC (evita SELECT direto em chats/chat_participants)
-      const { data, error } = await supabase.rpc("list_my_chats");
+    const allowlist = parseCreatorAllowlist(process.env.NEXT_PUBLIC_PUBLIC_CHAT_CREATORS);
+    setCanCreatePublicChats(allowlist.includes((user.email ?? "").toLowerCase()));
 
-      if (error) throw error;
+    const [publicRes, myRes] = await Promise.all([
+      supabase
+        .from("chats")
+        .select("id,title,last_message_at,last_message_text")
+        .eq("type", "public")
+        .order("last_message_at", { ascending: false, nullsFirst: false }),
+      supabase.rpc("list_my_chats"),
+    ]);
 
-      const rows = (data ?? []) as RpcListMyChatsRow[];
+    if (publicRes.error) toast.error(publicRes.error.message);
+    if (myRes.error) toast.error(myRes.error.message);
 
-      const nextItems: ChatListItem[] = rows.map((r) => {
-        const chat: ChatRow = {
-          id: r.id,
-          type: r.type,
-          title: r.title,
-          created_at: r.created_at,
-          last_message_at: r.last_message_at,
-          last_message_text: r.last_message_text,
-          dm_user_a: r.dm_user_a,
-          dm_user_b: r.dm_user_b,
-        };
+    const mineRows = (myRes.data ?? []) as RpcRow[];
+    const myIds = mineRows.map((row) => row.id);
 
-        const otherProfile: ProfileRow | null = r.other_user_id
-          ? {
-              id: r.other_user_id,
-              username: r.other_username,
-              display_name: r.other_display_name,
-              avatar_url: r.other_avatar_url,
-            }
-          : null;
+    const publicRows = (publicRes.data ?? []) as PublicChatRow[];
+    const publicIds = publicRows.map((row) => row.id);
 
-        return {
-          chat,
-          unread: !!r.unread,
-          otherProfile,
-        };
-      });
-
-      setItems(nextItems);
-    } catch (error: unknown) {
-      const err = error as SupabaseErrorLike;
-      console.error("ERRO loadChats (rpc):", {
-        message: err?.message,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
-        raw: err,
-      });
-      toast.error(err?.message ?? "Erro ao carregar chats.");
-    } finally {
-      setLoading(false);
+    const membersMap = new Map<string, number>();
+    if (publicIds.length > 0) {
+      const membersRes = await supabase.from("chat_participants").select("chat_id").in("chat_id", publicIds);
+      const memberRows = (membersRes.data ?? []) as ChatParticipantRow[];
+      for (const row of memberRows) {
+        membersMap.set(row.chat_id, (membersMap.get(row.chat_id) ?? 0) + 1);
+      }
     }
+
+    setPublicChats(
+      publicRows.map((chat) => ({
+        ...chat,
+        participant: myIds.includes(chat.id),
+        membersCount: membersMap.get(chat.id) ?? 0,
+      })),
+    );
+
+    setMyChats(
+      mineRows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        title: row.type === "dm" ? row.other_display_name ?? row.other_username ?? "DM" : row.title,
+        last_message_at: row.last_message_at,
+        last_message_text: row.last_message_text,
+        unread: row.unread,
+      })),
+    );
+
+    setLoading(false);
   }
 
   useEffect(() => {
-    loadChats();
+    void loadChats();
   }, []);
 
-  // -------- DM USERS SEARCH ----------
-  async function searchUsers(q: string) {
+  async function searchProfiles(query: string, setter: (rows: ProfileRow[]) => void) {
     const { data: userData } = await supabase.auth.getUser();
     const me = userData.user;
     if (!me) return;
 
-    const query = q.trim();
-    if (!query) {
-      setUsers([]);
+    const q = query.trim();
+    if (!q) {
+      setter([]);
       return;
     }
 
     setSearchingUsers(true);
-    try {
-      const res = await supabase
-        .from("profiles")
-        .select("id,username,display_name,avatar_url")
-        .neq("id", me.id)
-        .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-        .limit(20);
+    const res = await supabase
+      .from("profiles")
+      .select("id,username,display_name,avatar_url")
+      .neq("id", me.id)
+      .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .limit(20);
 
-      if (res.error) throw res.error;
-      setUsers((res.data ?? []) as ProfileRow[]);
-    } catch (error: unknown) {
-      const err = error as SupabaseErrorLike;
-      console.error("ERRO searchUsers:", {
-        message: err?.message,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
-        raw: err,
-      });
-      toast.error(err?.message ?? "Erro ao buscar usuários.");
-    } finally {
-      setSearchingUsers(false);
-    }
+    if (res.error) toast.error(res.error.message);
+    setter((res.data ?? []) as ProfileRow[]);
+    setSearchingUsers(false);
   }
 
-  // -------- CREATE GROUP ----------
   async function createGroup() {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-    if (!user) return toast.error("Você precisa estar logado.");
+    if (!title.trim()) return toast.error("Dê um nome para o grupo.");
+    setCreating(true);
 
-    const t = title.trim();
-    if (!t) return toast.error("Dê um nome para o chat.");
+    const { data, error } = await supabase.rpc("create_group_chat", {
+      p_title: title.trim(),
+      p_default_persona_id: activePersona?.id ?? null,
+    });
+
+    if (error) {
+      setCreating(false);
+      return toast.error(error.message);
+    }
+
+    const chatId = data as string | null;
+    if (!chatId) {
+      setCreating(false);
+      return toast.error("Não foi possível criar o grupo.");
+    }
+
+    if (inviteResults.length > 0) {
+      setInviting(true);
+      await supabase.from("chat_participants").upsert(
+        inviteResults.map((item) => ({ chat_id: chatId, user_id: item.id })),
+        { onConflict: "chat_id,user_id" },
+      );
+      setInviting(false);
+    }
+
+    toast.success("Grupo criado.");
+    setCreating(false);
+    setOpen(false);
+    setTitle("");
+    setInviteQuery("");
+    setInviteResults([]);
+    await loadChats();
+    router.push(`/app/chats/${chatId}`);
+  }
+
+  async function createPublicChat() {
+    if (!canCreatePublicChats) return toast.error("Você não tem permissão para criar chat público.");
+    if (!title.trim()) return toast.error("Dê um nome para o chat público.");
 
     setCreating(true);
-    try {
-      // ✅ CRIA VIA RPC (não usa created_by, não bate em RLS do chats)
-      const { data, error } = await supabase.rpc("create_group_chat", {
-        p_title: t,
-        p_default_persona_id: activePersona?.id ?? null,
-      });
-
-      if (error) throw error;
-
-      // padrão: RPC retorna o chat_id (uuid) como string
-      const chatId = data as any as string;
-      if (!chatId) throw new Error("RPC não retornou chat_id.");
-
-      toast.success("Grupo criado!");
-      setOpen(false);
-      setTitle("");
-      await loadChats();
-      router.push(`/app/chats/${chatId}`);
-    } catch (error: unknown) {
-      const err = error as SupabaseErrorLike;
-      console.error("ERRO createGroup (rpc):", {
-        message: err?.message,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
-        raw: err,
-      });
-      toast.error(err?.message ?? "Erro ao criar grupo");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  // -------- CREATE DM ----------
-  async function createDm() {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
 
-    if (!user) return toast.error("Você precisa estar logado.");
+    if (!user) {
+      setCreating(false);
+      return toast.error("Sessão expirada.");
+    }
+
+    const payload: Record<string, string> = {
+      type: "public",
+      title: title.trim(),
+      created_by: user.id,
+    };
+
+    let insert = await supabase.from("chats").insert(payload).select("id").single();
+    if (insert.error) {
+      const fallbackPayload: Record<string, string> = {
+        type: "public",
+        title: title.trim(),
+      };
+      insert = await supabase.from("chats").insert(fallbackPayload).select("id").single();
+    }
+
+    if (insert.error || !insert.data) {
+      setCreating(false);
+      return toast.error(insert.error?.message ?? "Falha ao criar chat público.");
+    }
+
+    const chatId = (insert.data as { id: string }).id;
+    await supabase.from("chat_participants").upsert(
+      {
+        chat_id: chatId,
+        user_id: user.id,
+        role: "owner",
+      },
+      { onConflict: "chat_id,user_id" },
+    );
+
+    setCreating(false);
+    setOpen(false);
+    setTitle("");
+    toast.success("Chat público criado.");
+    await loadChats();
+    router.push(`/app/chats/${chatId}`);
+  }
+
+  async function createDm() {
     if (!selectedUserId) return toast.error("Selecione um usuário.");
 
     setCreating(true);
-    try {
-      // ✅ CRIA/ABRE VIA RPC (se já existe, retorna o existente)
-      const { data, error } = await supabase.rpc("create_dm_chat", {
-        p_other_user_id: selectedUserId,
-        p_default_persona_id: activePersona?.id ?? null,
-      });
+    const { data, error } = await supabase.rpc("create_dm_chat", {
+      p_other_user_id: selectedUserId,
+      p_default_persona_id: activePersona?.id ?? null,
+    });
 
-      if (error) throw error;
-
-      const chatId = data as any as string;
-      if (!chatId) throw new Error("RPC não retornou chat_id.");
-
-      toast.success("DM pronto!");
-      setOpen(false);
-      setSelectedUserId(null);
-      setUserQuery("");
-      setUsers([]);
-      await loadChats();
-      router.push(`/app/chats/${chatId}`);
-    } catch (error: unknown) {
-      const err = error as SupabaseErrorLike;
-      console.error("ERRO createDm (rpc):", {
-        message: err?.message,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
-        raw: err,
-      });
-      toast.error(err?.message ?? "Erro ao criar DM");
-    } finally {
+    if (error) {
       setCreating(false);
+      return toast.error(error.message);
     }
+
+    const chatId = data as string | null;
+    if (!chatId) {
+      setCreating(false);
+      return toast.error("Não foi possível criar DM.");
+    }
+
+    setCreating(false);
+    setOpen(false);
+    setSelectedUserId(null);
+    setUserQuery("");
+    setUsers([]);
+    toast.success("DM pronta.");
+    await loadChats();
+    router.push(`/app/chats/${chatId}`);
   }
 
-  const empty = !loading && items.length === 0;
+  const canCreate = useMemo(() => {
+    if (createType === "dm") return !!selectedUserId;
+    return !!title.trim();
+  }, [createType, selectedUserId, title]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold">Chats</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            Grupos e conversas privadas
-          </p>
+    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Chats</h1>
+          <p className="text-sm text-muted-foreground">Públicos, grupos por convite e DMs 1:1.</p>
         </div>
 
         <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            className="rounded-2xl"
-            onClick={loadChats}
-          >
-            Atualizar
-          </Button>
-
+          <Button variant="secondary" className="rounded-2xl" onClick={() => void loadChats()}>Atualizar</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="rounded-2xl">Novo</Button>
+              <Button className="rounded-2xl"><PlusCircle className="mr-2 h-4 w-4" /> Novo chat</Button>
             </DialogTrigger>
-
             <DialogContent className="rounded-2xl">
-              <DialogHeader>
-                <DialogTitle>Criar chat</DialogTitle>
-              </DialogHeader>
+              <DialogHeader><DialogTitle>Criar chat</DialogTitle></DialogHeader>
 
               <div className="space-y-3">
-                <ToggleGroup
-                  type="single"
-                  value={createType}
-                  onValueChange={(v) => {
-                    const next = (v as "group" | "dm") || "group";
-                    setCreateType(next);
-                    // reset ao trocar tipo
-                    setTitle("");
-                    setUserQuery("");
-                    setUsers([]);
-                    setSelectedUserId(null);
-                  }}
-                  className="flex gap-2"
-                >
-                  <ToggleGroupItem value="group" className="rounded-2xl border">
-                    Grupo
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="dm" className="rounded-2xl border">
-                    Privado (DM)
-                  </ToggleGroupItem>
+                <ToggleGroup type="single" value={createType} onValueChange={(v) => setCreateType((v as "group" | "dm" | "public") || "group")}>
+                  {canCreatePublicChats ? <ToggleGroupItem value="public" className="rounded-xl border"><Globe className="mr-1 h-4 w-4" /> Público</ToggleGroupItem> : null}
+                  <ToggleGroupItem value="group" className="rounded-xl border"><Users className="mr-1 h-4 w-4" /> Grupo</ToggleGroupItem>
+                  <ToggleGroupItem value="dm" className="rounded-xl border"><MessageCircle className="mr-1 h-4 w-4" /> DM</ToggleGroupItem>
                 </ToggleGroup>
 
-                {createType === "group" ? (
-                  <Input
-                    placeholder="Nome do grupo"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                ) : (
-                  <div className="space-y-2">
+                {createType === "dm" ? (
+                  <>
                     <Input
-                      placeholder="Buscar usuário (username ou nome)"
+                      placeholder="Buscar usuário"
                       value={userQuery}
                       onChange={(e) => {
-                        const v = e.target.value;
-                        setUserQuery(v);
+                        const next = e.target.value;
+                        setUserQuery(next);
                         setSelectedUserId(null);
-                        void searchUsers(v);
+                        void searchProfiles(next, setUsers);
                       }}
                     />
-
-                    {searchingUsers ? (
-                      <div className="text-sm text-muted-foreground">
-                        Buscando...
-                      </div>
-                    ) : users.length === 0 ? (
-                      <div className="text-sm text-muted-foreground">
-                        Digite para buscar.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {users.map((u) => {
-                          const label =
-                            u.display_name ?? u.username ?? "Sem nome";
-                          const selected = selectedUserId === u.id;
-
-                          return (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onClick={() => setSelectedUserId(u.id)}
-                              className={`w-full rounded-2xl border p-3 text-left transition ${
-                                selected ? "bg-muted/50" : "hover:bg-muted/30"
-                              }`}
-                            >
-                              <div className="text-sm font-medium truncate">
-                                {label}
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                @{u.username ?? "sem-username"}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                    {searchingUsers ? <p className="text-sm text-muted-foreground">Buscando...</p> : null}
+                    <div className="max-h-48 space-y-2 overflow-auto">
+                      {users.map((user) => (
+                        <button key={user.id} type="button" className={`w-full rounded-xl border p-3 text-left ${selectedUserId === user.id ? "bg-muted" : ""}`} onClick={() => setSelectedUserId(user.id)}>
+                          <p className="text-sm font-medium">{user.display_name ?? user.username ?? "Usuário"}</p>
+                          <p className="text-xs text-muted-foreground">@{user.username ?? "sem-username"}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Input placeholder={createType === "public" ? "Nome do chat público" : "Nome do grupo"} value={title} onChange={(e) => setTitle(e.target.value)} />
+                    {createType === "group" ? (
+                      <>
+                        <Input
+                          placeholder="Convidar por e-mail ou @username"
+                          value={inviteQuery}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setInviteQuery(next);
+                            void searchProfiles(next, setInviteResults);
+                          }}
+                        />
+                        <div className="max-h-40 space-y-2 overflow-auto">
+                          {inviteResults.map((user) => (
+                            <Card key={user.id} className="rounded-xl border"><CardContent className="p-2 text-sm">{user.display_name ?? user.username ?? "Usuário"}</CardContent></Card>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </>
                 )}
 
                 <Button
                   className="w-full rounded-2xl"
-                  onClick={createType === "group" ? createGroup : createDm}
-                  disabled={
-                    creating ||
-                    (createType === "group" ? !title.trim() : !selectedUserId)
-                  }
+                  disabled={!canCreate || creating || inviting}
+                  onClick={() => {
+                    if (createType === "dm") return void createDm();
+                    if (createType === "public") return void createPublicChat();
+                    return void createGroup();
+                  }}
                 >
                   {creating ? "Criando..." : "Criar"}
                 </Button>
@@ -405,63 +373,28 @@ export default function ChatsPage() {
         </div>
       </header>
 
+      <Card className="rounded-2xl border shadow-sm">
+        <CardContent className="p-3">
+          <ToggleGroup type="single" value={section} onValueChange={(v) => setSection((v as "public" | "mine") || "public")}>
+            <ToggleGroupItem value="public" className="rounded-xl border text-sm"><Globe className="mr-1 h-4 w-4" /> Públicos</ToggleGroupItem>
+            <ToggleGroupItem value="mine" className="rounded-xl border text-sm"><Users className="mr-1 h-4 w-4" /> Meus chats</ToggleGroupItem>
+          </ToggleGroup>
+        </CardContent>
+      </Card>
+
       {loading ? (
-        <div className="text-sm text-muted-foreground">Carregando...</div>
-      ) : empty ? (
-        <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Nenhum chat ainda</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Crie um chat em <b>Novo</b>.
-          </CardContent>
-        </Card>
+        <p className="text-sm text-muted-foreground">Carregando...</p>
+      ) : section === "public" ? (
+        <PublicChatsList
+          chats={publicChats}
+          onOpen={(chatId) => router.push(`/app/chats/${chatId}`)}
+          onJoined={async (chatId) => {
+            await loadChats();
+            router.push(`/app/chats/${chatId}`);
+          }}
+        />
       ) : (
-        <div className="space-y-3">
-          {items.map(({ chat, unread, otherProfile }) => {
-            const dmLabel =
-              otherProfile?.display_name ?? otherProfile?.username ?? "DM";
-
-            const title =
-              chat.type === "group" ? (chat.title ?? "Grupo") : dmLabel;
-
-            const subtitle = chat.last_message_text
-              ? chat.last_message_text
-              : chat.last_message_at
-                ? `Última msg: ${new Date(chat.last_message_at).toLocaleString("pt-BR")}`
-                : `Criado em: ${new Date(chat.created_at).toLocaleString("pt-BR")}`;
-
-            return (
-              <button
-                key={chat.id}
-                type="button"
-                className="w-full text-left"
-                onClick={() => router.push(`/app/chats/${chat.id}`)}
-              >
-                <Card className="rounded-2xl transition hover:bg-muted/30">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-sm truncate flex-1">
-                        {title}
-                      </CardTitle>
-                      {unread ? (
-                        <span className="h-2.5 w-2.5 rounded-full bg-primary" />
-                      ) : null}
-                    </div>
-
-                    <div className="text-xs text-muted-foreground truncate">
-                      {subtitle}
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="text-xs text-muted-foreground">
-                    Toque para abrir
-                  </CardContent>
-                </Card>
-              </button>
-            );
-          })}
-        </div>
+        <MyChatsList chats={myChats} onOpen={(chatId) => router.push(`/app/chats/${chatId}`)} />
       )}
     </div>
   );

@@ -45,6 +45,7 @@ export default function PersonasPage() {
     const { data, error } = await supabase
       .from("personas")
       .select("*")
+      .eq("user_id", userData.user.id)
       .order("created_at", { ascending: true });
 
     if (error) setErrorMsg(error.message);
