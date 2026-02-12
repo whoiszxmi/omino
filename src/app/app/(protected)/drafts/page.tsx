@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import type { DraftRow } from "@/lib/drafts/types";
 
 function resolvePath(draft: DraftRow) {
@@ -76,7 +77,7 @@ export default function DraftsPage() {
       </header>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+        <AppPageSkeleton compact />
       ) : drafts.length === 0 ? (
         <Card className="rounded-2xl">
           <CardContent className="p-4 text-sm text-muted-foreground">Nenhum rascunho salvo.</CardContent>

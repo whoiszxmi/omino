@@ -6,12 +6,15 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
+import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
+import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 
 type WikiRow = {
   id: string;
@@ -35,6 +38,7 @@ export default function WikiEditPage() {
   const [contentHtml, setContentHtml] = useState("");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -48,12 +52,12 @@ export default function WikiEditPage() {
     draftKey: `edit:${wikiId}`,
     personaId: activePersona?.id ?? null,
     initialValue: initialDraft,
-    value: { title, contentHtml, coverUrl },
+    value: { title, contentHtml, coverUrl: backgroundColor },
     enabled: !!wiki,
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);
-      setCoverUrl(draft.coverUrl);
+      setBackgroundColor(draft.coverUrl ?? DEFAULT_DOC_BACKGROUND);
     },
   });
 
@@ -73,8 +77,10 @@ export default function WikiEditPage() {
       if (!wikiRes.error && wikiRes.data) {
         const row = wikiRes.data as WikiRow;
         setWiki(row);
+        const parsed = parseDocContent(row.content_html ?? "");
         setTitle(row.title ?? "");
-        setContentHtml(row.content_html ?? "");
+        setContentHtml(parsed.bodyHtml);
+        setBackgroundColor(parsed.backgroundColor);
         setCoverUrl(row.cover_url ?? null);
         setCategoryId(row.category_id ?? null);
       }
@@ -102,6 +108,10 @@ export default function WikiEditPage() {
     if (!wiki || !canEdit) return toast.error("Sem permissão para editar.");
 
     const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const contentWithBg = buildDocContent({
+      bodyHtml: sanitized,
+      backgroundColor,
+    });
     if (!title.trim()) return toast.error("Título é obrigatório.");
     if (!sanitized) return toast.error("Conteúdo obrigatório.");
 
@@ -110,7 +120,7 @@ export default function WikiEditPage() {
       .from("wiki_pages")
       .update({
         title: title.trim(),
-        content_html: sanitized,
+        content_html: contentWithBg,
         cover_url: coverUrl,
         category_id: categoryId,
       })
@@ -124,7 +134,7 @@ export default function WikiEditPage() {
     router.push(`/app/wiki/${wiki.id}`);
   }
 
-  if (loading) return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>;
+  if (loading) return <AppPageSkeleton compact />;
   if (!wiki) return <div className="p-4 text-sm text-muted-foreground">Wiki não encontrada.</div>;
 
   return (
@@ -169,7 +179,11 @@ export default function WikiEditPage() {
             ))}
           </select>
 
-          <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite o conteúdo..." folder="wikis" imageInsertMode="both" enableTables />
+          <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <div className="rounded-2xl p-2" style={{ backgroundColor }}>
+            <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite o conteúdo..." folder="wikis" imageInsertMode="both" enableTables />
+          </div>
 
           <Button className="w-full rounded-2xl" onClick={() => void saveWiki()} disabled={saving || !canEdit}>
             {saving ? "Salvando..." : "Salvar alterações"}
