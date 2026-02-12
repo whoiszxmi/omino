@@ -103,7 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AllowlistGuard>
       <div className="min-h-dvh bg-background">
-        <div className="mx-auto flex min-h-dvh w-full max-w-6xl">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[1400px]">
           {/* Sidebar desktop */}
           <aside className="hidden w-72 flex-col border-r bg-background md:flex">
             <div className="p-4">
@@ -270,9 +270,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex min-h-dvh flex-1 flex-col">
             {/* Topbar */}
             <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-              <div className="mx-auto flex w-full max-w-md items-center justify-between px-4 py-3 md:max-w-2xl">
+              <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-3 py-3 sm:px-4 md:px-6">
                 <div className="min-w-0">
-                  <div className="truncate text-base font-semibold">
+                  <div className="truncate text-xl font-semibold">
                     {title}
                   </div>
                   <div className="truncate text-xs text-muted-foreground">
@@ -393,14 +393,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </header>
 
             {/* Content */}
-            <main className="mx-auto w-full max-w-md flex-1 px-4 py-4 md:max-w-2xl">
+            <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 md:px-6 md:py-5">
               <Bootstrap>{children}</Bootstrap>
             </main>
 
             {/* Bottom nav (mobile) */}
             <nav className="sticky bottom-0 z-10 border-t bg-background/85 backdrop-blur md:hidden">
-              <div className="mx-auto grid max-w-md grid-cols-5 gap-1 px-2 py-2">
-                {navItems.slice(0, 5).map((item) => {
+              <div className="mx-auto grid w-full max-w-2xl grid-cols-6 gap-1 px-2 py-2">
+                {navItems.map((item) => {
                   const active = isActive(pathname, item.href);
                   const Icon = item.icon;
 
@@ -409,7 +409,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       key={item.href}
                       onClick={() => router.push(item.href)}
                       className={cx(
-                        "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] transition",
+                        "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] transition",
                         active ? "bg-muted font-medium" : "hover:bg-muted/60",
                       )}
                       type="button"
