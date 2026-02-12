@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Globe, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -24,25 +23,17 @@ export default function PublicChatsPage() {
 
   async function loadChats() {
     setLoading(true);
-
-    const rpc = await supabase.rpc("list_public_chats");
-    if (!rpc.error) {
-      setChats((rpc.data ?? []) as PublicChat[]);
-      setLoading(false);
-      return;
-    }
-
-    const fallback = await supabase
+    const { data, error } = await supabase
       .from("chats")
       .select("id,title,last_message_text,last_message_at")
       .eq("type", "public")
       .order("last_message_at", { ascending: false, nullsFirst: false });
 
-    if (fallback.error) {
-      toast.error(fallback.error.message);
+    if (error) {
+      toast.error(error.message);
     }
 
-    setChats((fallback.data ?? []) as PublicChat[]);
+    setChats((data ?? []) as PublicChat[]);
     setLoading(false);
   }
 
@@ -53,16 +44,25 @@ export default function PublicChatsPage() {
   async function enterChat(chatId: string) {
     setJoiningId(chatId);
 
-    const { error } = await supabase.rpc("join_public_chat", {
-      p_chat_id: chatId,
-    });
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (!user) {
+      toast.error("Você precisa estar logado.");
+      setJoiningId(null);
+      return;
+    }
+
+    const { error } = await supabase.from("chat_participants").upsert(
+      {
+        chat_id: chatId,
+        user_id: user.id,
+      },
+      { onConflict: "chat_id,user_id" },
+    );
 
     if (error) {
-      toast.error(
-        error.message.includes("join_public_chat")
-          ? "Não foi possível entrar no chat público agora."
-          : error.message,
-      );
+      toast.error(error.message);
       setJoiningId(null);
       return;
     }
@@ -89,7 +89,7 @@ export default function PublicChatsPage() {
       </header>
 
       {loading ? (
-        <AppPageSkeleton compact />
+        <p className="text-sm text-muted-foreground">Carregando...</p>
       ) : chats.length === 0 ? (
         <Card className="rounded-2xl">
           <CardHeader>

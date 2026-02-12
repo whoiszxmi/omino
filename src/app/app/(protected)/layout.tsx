@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CreateChooser } from "@/components/app/CreateChooser";
 import { ActionToolbar } from "@/components/app/ActionToolbar";
-import { AppSidebar } from "@/components/nav/AppSidebar";
-import { AppMobileNav } from "@/components/nav/AppMobileNav";
 import AllowlistGuard from "@/components/auth/AllowlistGuard";
 import {
   Dialog,
@@ -18,17 +16,27 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import Bootstrap from "./Bootstrap";
-import { Plus } from "lucide-react";
+import {
+  Home,
+  MessageCircle,
+  BookOpen,
+  UsersRound,
+  Plus,
+  UserRound,
+  Star,
+  FileText,
+  Menu,
+  ChevronRight,
+} from "lucide-react";
 
-function pageTitle(pathname: string) {
-  if (pathname.startsWith("/app/chats")) return "Chats";
-  if (pathname.startsWith("/app/wiki/categories")) return "Categorias";
-  if (pathname.startsWith("/app/wiki")) return "Wiki";
-  if (pathname.startsWith("/app/highlights")) return "Destaques";
-  if (pathname.startsWith("/app/personas")) return "Personas";
-  if (pathname.startsWith("/app/profile")) return "Perfil";
-  if (pathname.startsWith("/app/drafts")) return "Rascunhos";
-  return "Feed";
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function isActive(pathname: string, href: string) {
+  if (href === "/app/feed")
+    return pathname === "/app" || pathname.startsWith("/app/feed");
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
 type Action = { label: string; href: string; requiresPersona?: boolean } | null;
@@ -51,24 +59,76 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     useActivePersona();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [personaOpen, setPersonaOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const action = useMemo(() => pageAction(pathname), [pathname]);
+  const { title, action }: { title: string; action: Action } = useMemo(() => {
+    if (pathname.startsWith("/app/feed")) {
+      return {
+        title: "Feed",
+        action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
+      };
+    }
+    if (pathname.startsWith("/app/chats")) {
+      return { title: "Chats", action: null };
+    }
+    if (pathname.startsWith("/app/wiki/categories")) {
+      return {
+        title: "Categorias",
+        action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
+      };
+    }
+    if (pathname.startsWith("/app/wiki")) {
+      return {
+        title: "Wiki",
+        action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
+      };
+    }
+    if (pathname.startsWith("/app/personas")) {
+      return { title: "Personas", action: null };
+    }
+    if (pathname.startsWith("/app/profile")) {
+      return { title: "Perfil", action: null };
+    }
+    return {
+      title: "Feed",
+      action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
+    };
+  }, [pathname]);
+
   const canUseAction = !action?.requiresPersona || !!activePersona;
+
+  const navItems = useMemo(
+    () => [
+      { href: "/app/feed", label: "Feed", icon: Home },
+      { href: "/app/chats", label: "Chats", icon: MessageCircle },
+      { href: "/app/wiki", label: "Wiki", icon: BookOpen },
+      { href: "/app/highlights", label: "Destaques", icon: Star },
+      { href: "/app/personas", label: "Personas", icon: UsersRound },
+      { href: "/app/profile", label: "Perfil", icon: UserRound },
+      { href: "/app/drafts", label: "Rascunhos", icon: FileText },
+    ],
+    [],
+  );
 
   return (
     <AllowlistGuard>
-      <div className="flex min-h-dvh w-full overflow-x-hidden bg-background">
-        <AppSidebar className="hidden md:flex" />
+      <div className="min-h-dvh bg-background">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[1400px]">
+          <aside className="hidden w-72 flex-col border-r bg-background md:flex">
+            <div className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-lg font-semibold">Comunidade</div>
+                  <div className="text-xs text-muted-foreground">Uzure • Inc</div>
+                </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <AppMobileNav className="md:hidden" />
 
-          <div className="hidden border-b md:block">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-8">
-              <div>
-                <h1 className="text-xl font-semibold">{pageTitle(pathname)}</h1>
-                <p className="text-xs text-muted-foreground">
+              <div className="mt-3 rounded-2xl border p-3">
+                <div className="text-xs text-muted-foreground">Persona ativa</div>
+                <div className="mt-1 truncate text-sm font-medium">
                   {loading
                     ? "Carregando persona..."
                     : activePersona
@@ -77,33 +137,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Dialog open={personaOpen} onOpenChange={setPersonaOpen}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" variant="secondary" className="rounded-2xl">
-                      Trocar persona
-                    </Button>
-                  </DialogTrigger>
-
-                  <DialogContent className="rounded-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Escolher persona</DialogTitle>
-                    </DialogHeader>
-
-                    {error && <p className="text-sm text-red-400">{error}</p>}
-
-                    <div className="space-y-2">
-                      {personas.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          Você ainda não tem personas. Crie em /app/personas.
-                        </p>
-                      ) : (
-                        personas.map((p) => (
-                          <Card key={p.id} className="rounded-2xl p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-medium">
-                                  {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                      <div className="space-y-2">
+                        {personas.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            Você ainda não tem personas. Crie em /app/personas.
+                          </p>
+                        ) : (
+                          personas.map((p) => (
+                            <Card key={p.id} className="rounded-2xl p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-medium">
+                                    {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                                  </div>
+                                  {p.bio && (
+                                    <div className="truncate text-xs text-muted-foreground">
+                                      {p.bio}
+                                    </div>
+                                  )}
                                 </div>
                                 {p.bio && (
                                   <div className="truncate text-xs text-muted-foreground">
@@ -112,26 +163,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                 )}
                               </div>
 
-                              <Button
-                                size="sm"
-                                className="rounded-2xl"
-                                variant={activePersona?.id === p.id ? "secondary" : "default"}
-                                onClick={async () => {
-                                  await setActivePersona(p.id);
-                                  setPersonaOpen(false);
-                                }}
-                              >
-                                {activePersona?.id === p.id ? "Ok" : "Usar"}
-                              </Button>
-                            </div>
-                          </Card>
-                        ))
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
+              <div className="mt-3">
+                <Button
+                  className="w-full rounded-2xl"
+                  onClick={() => setCreateOpen(true)}
+                  disabled={!activePersona}
+                  title={!activePersona ? "Selecione uma persona" : "Criar"}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Criar
+                </Button>
+                {!activePersona && (
+                  <div className="mt-2 text-[11px] text-muted-foreground">
+                    Selecione uma persona para postar/criar wiki.
+                  </div>
+                )}
+              </div>
 
-                {action ? (
+              {action && (
+                <div className="mt-2">
                   <Button
                     variant="secondary"
                     className="rounded-2xl"
@@ -152,18 +202,116 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
             </div>
-          </div>
+          </aside>
+
+          <div className="flex min-h-dvh flex-1 flex-col">
+            <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
+              <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 md:px-6">
+                <div className="min-w-0">
+                  <div className="truncate text-xl font-semibold">{title}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {loading
+                      ? "Carregando persona..."
+                      : activePersona
+                        ? `Usando: ${activePersona.name}`
+                        : "Sem persona"}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="md:hidden">
+                    <Dialog open={open} onOpenChange={setOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="secondary" className="rounded-2xl">
+                          Trocar persona
+                        </Button>
+                      </DialogTrigger>
+
+                      <DialogContent className="rounded-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Escolher persona</DialogTitle>
+                        </DialogHeader>
+
+                        {error && <p className="text-sm text-red-400">{error}</p>}
+
+                        <div className="space-y-2">
+                          {personas.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              Você ainda não tem personas. Crie em /app/personas.
+                            </p>
+                          ) : (
+                            personas.map((p) => (
+                              <Card key={p.id} className="rounded-2xl p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium">
+                                      {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                                    </div>
+                                    {p.bio && (
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {p.bio}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <Button
+                                    size="sm"
+                                    className="rounded-2xl"
+                                    variant={
+                                      activePersona?.id === p.id
+                                        ? "secondary"
+                                        : "default"
+                                    }
+                                    onClick={async () => {
+                                      await setActivePersona(p.id);
+                                      setOpen(false);
+                                    }}
+                                  >
+                                    {activePersona?.id === p.id ? "Ok" : "Usar"}
+                                  </Button>
+                                </div>
+                              </Card>
+                            ))
+                          )}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="rounded-2xl"
+                    onClick={() => router.push("/app/profile")}
+                    title="Perfil"
+                  >
+                    <UserRound className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </header>
+
+            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 md:px-6 md:py-5">
+              <Bootstrap>{children}</Bootstrap>
+            </main>
+
+            <nav className="sticky bottom-0 z-10 border-t bg-background/85 backdrop-blur md:hidden">
+              <div className="mx-auto grid w-full max-w-2xl grid-cols-6 gap-1 px-2 py-2">
+                {navItems.map((item) => {
+                  const active = isActive(pathname, item.href);
+                  const Icon = item.icon;
 
           <main className="min-w-0 flex-1 px-4 py-4 md:px-8 md:py-6">
             <Bootstrap>{children}</Bootstrap>
           </main>
 
-          <ActionToolbar hasPersona={!!activePersona} />
-          <CreateChooser
-            open={createOpen}
-            onOpenChange={setCreateOpen}
-            hasPersona={!!activePersona}
-          />
+            <ActionToolbar hasPersona={!!activePersona} />
+            <CreateChooser
+              open={createOpen}
+              onOpenChange={setCreateOpen}
+              hasPersona={!!activePersona}
+            />
+          </div>
         </div>
       </div>
     </AllowlistGuard>

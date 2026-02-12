@@ -30,27 +30,47 @@ export default function NewPublicChatPage() {
 
     setCreating(true);
 
-    const { data: chatId, error } = await supabase.rpc("create_public_chat", {
-      p_title: trimmed,
-    });
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
 
-    if (error || !chatId) {
-      toast.error(
-        error?.message.includes("create_public_chat")
-          ? "Não foi possível criar o chat público agora."
-          : (error?.message ?? "Erro ao criar chat público."),
-      );
+    if (!user) {
+      toast.error("Você precisa estar logado.");
+      setCreating(false);
+      return;
+    }
+
+    const { data: chat, error: chatError } = await supabase
+      .from("chats")
+      .insert({ title: trimmed, type: "public" })
+      .select("id")
+      .single();
+
+    if (chatError || !chat) {
+      toast.error(chatError?.message ?? "Não foi possível criar o chat público.");
+      setCreating(false);
+      return;
+    }
+
+    const { error: participantError } = await supabase
+      .from("chat_participants")
+      .insert({
+        chat_id: chat.id,
+        user_id: user.id,
+        role: "owner",
+      });
+
+    if (participantError) {
+      toast.error(participantError.message);
       setCreating(false);
       return;
     }
 
     toast.success("Chat público criado.");
-    setCreating(false);
-    router.push(`/app/chats/${chatId}`);
+    router.push(`/app/chats/${chat.id}`);
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 md:px-6">
+    <div className="mx-auto w-full max-w-2xl px-4 md:px-6">
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle className="text-xl">Novo chat público</CardTitle>

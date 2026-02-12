@@ -6,10 +6,10 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { renderRichHtml } from "@/lib/render/richText";
+import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 
 type WikiRow = {
   id: string;
@@ -96,7 +96,10 @@ export default function WikiViewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wikiId]);
 
-  const safeHtml = useMemo(() => renderRichHtml(wiki?.content_html ?? ""), [wiki?.content_html]);
+  const safeHtml = useMemo(
+    () => renderRichHtml(wiki?.content_html ?? ""),
+    [wiki?.content_html],
+  );
 
   if (loading) {
     return (

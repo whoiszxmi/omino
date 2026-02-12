@@ -17,8 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
-import { Plus, RefreshCw } from "lucide-react";
-import PublicChatsList, { type PublicChatItem } from "@/components/chats/PublicChatsList";
+import { Globe, Plus, RefreshCw } from "lucide-react";
 import MyChatsList, { type MyChatItem } from "@/components/chats/MyChatsList";
 
 type ProfileRow = {
@@ -39,25 +38,17 @@ type RpcRow = {
   other_username?: string | null;
 };
 
-type ChatRow = {
-  id: string;
-  title: string | null;
-  last_message_at: string | null;
-  last_message_text: string | null;
-};
-
 export default function ChatsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
-  const [publicChats, setPublicChats] = useState<PublicChatItem[]>([]);
   const [myChats, setMyChats] = useState<MyChatItem[]>([]);
-  const [section, setSection] = useState<"public" | "mine">("public");
+  const [section, setSection] = useState<"public" | "group" | "dm">("public");
 
   const [open, setOpen] = useState(false);
-  const [createType, setCreateType] = useState<"group" | "dm" | "public">("group");
+  const [createType, setCreateType] = useState<"group" | "dm">("group");
   const [title, setTitle] = useState("");
 
   const [userQuery, setUserQuery] = useState("");
@@ -73,34 +64,11 @@ export default function ChatsPage() {
   async function loadChats() {
     setLoading(true);
 
-    const [publicRpc, myRes] = await Promise.all([
-      supabase.rpc("list_public_chats"),
-      supabase.rpc("list_my_chats"),
-    ]);
-
-    let publicRows = (publicRpc.data ?? []) as ChatRow[];
-    if (publicRpc.error) {
-      const fallback = await supabase
-        .from("chats")
-        .select("id,title,last_message_at,last_message_text")
-        .eq("type", "public")
-        .order("last_message_at", { ascending: false, nullsFirst: false });
-      if (fallback.error) toast.error(fallback.error.message);
-      publicRows = (fallback.data ?? []) as ChatRow[];
-    }
-
+    const myRes = await supabase.rpc("list_my_chats");
     if (myRes.error) toast.error(myRes.error.message);
 
+    // ✅ aqui era o bug: publicRes não existe e nem é necessário nesta página
     const mineRows = (myRes.data ?? []) as RpcRow[];
-
-    const myIds = new Set(mineRows.map((row) => row.id));
-
-    setPublicChats(
-      publicRows.map((row) => ({
-        ...row,
-        participant: myIds.has(row.id),
-      })),
-    );
 
     setMyChats(
       mineRows.map((row) => {
@@ -163,6 +131,7 @@ export default function ChatsPage() {
     if (!t) return toast.error("Dê um nome para o grupo.");
 
     setCreating(true);
+
     const { data, error } = await supabase.rpc("create_group_chat", {
       p_title: t,
       p_default_persona_id: activePersona?.id ?? null,
@@ -181,14 +150,20 @@ export default function ChatsPage() {
       return;
     }
 
+    // opcional: convidar resultados (você pode trocar por “selecionados” depois)
     if (inviteResults.length > 0) {
       setInviting(true);
-      const rows = inviteResults.map((p) => ({ chat_id: chatId, user_id: p.id }));
+      const rows = inviteResults.map((p) => ({
+        chat_id: chatId,
+        user_id: p.id,
+      }));
       const inviteRes = await supabase
         .from("chat_participants")
         .upsert(rows, { onConflict: "chat_id,user_id" });
-      if (inviteRes.error)
+
+      if (inviteRes.error) {
         toast.error(`Falha ao convidar: ${inviteRes.error.message}`);
+      }
       setInviting(false);
     }
 
@@ -197,8 +172,10 @@ export default function ChatsPage() {
     setInviteQuery("");
     setInviteResults([]);
     setTitle("");
+
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+
     setCreating(false);
   }
 
@@ -236,6 +213,7 @@ export default function ChatsPage() {
     if (!selectedUserId) return toast.error("Selecione um usuário.");
 
     setCreating(true);
+
     const { data, error } = await supabase.rpc("create_dm_chat", {
       p_other_user_id: selectedUserId,
       p_default_persona_id: activePersona?.id ?? null,
@@ -259,8 +237,10 @@ export default function ChatsPage() {
     setSelectedUserId(null);
     setUserQuery("");
     setUsers([]);
+
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+
     setCreating(false);
   }
 
@@ -272,17 +252,23 @@ export default function ChatsPage() {
     [createType, selectedUserId, title],
   );
 
+  const filteredChats = useMemo(() => {
+    if (section === "dm") return myChats.filter((c) => c.type === "dm");
+    if (section === "group") return myChats.filter((c) => c.type === "group");
+    return myChats.filter((c) => c.type === "public");
+  }, [myChats, section]);
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Chats</h1>
           <p className="text-sm text-muted-foreground">
-            Públicos e conversas onde você participa.
+            Públicos, grupos por convite e DMs 1:1.
           </p>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <div className="flex w-full gap-2 sm:w-auto">
           <Button
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"
@@ -290,27 +276,29 @@ export default function ChatsPage() {
           >
             <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
           </Button>
+
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="w-full rounded-2xl sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" /> Novo chat
               </Button>
             </DialogTrigger>
+
             <DialogContent className="rounded-2xl">
               <DialogHeader>
                 <DialogTitle>Criar chat</DialogTitle>
               </DialogHeader>
+
               <div className="space-y-3">
                 <Segmented
                   type="single"
                   value={createType}
                   onValueChange={(v) =>
-                    setCreateType((v as "group" | "dm" | "public") || "group")
+                    setCreateType((v as "group" | "dm") || "group")
                   }
                 >
                   <SegmentedItem value="group">Grupo</SegmentedItem>
                   <SegmentedItem value="dm">DM</SegmentedItem>
-                  <SegmentedItem value="public">Público</SegmentedItem>
                 </Segmented>
 
                 {createType === "group" ? (
@@ -320,8 +308,9 @@ export default function ChatsPage() {
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
+
                     <Input
-                      placeholder="Convidar por e-mail ou @username"
+                      placeholder="Convidar por @username / nome"
                       value={inviteQuery}
                       onChange={(e) => {
                         const next = e.target.value;
@@ -329,6 +318,7 @@ export default function ChatsPage() {
                         void searchProfiles(next, setInviteResults);
                       }}
                     />
+
                     <div className="max-h-40 space-y-2 overflow-auto">
                       {inviteResults.map((u) => (
                         <Card key={u.id} className="rounded-xl border">
@@ -357,15 +347,21 @@ export default function ChatsPage() {
                         void searchProfiles(next, setUsers);
                       }}
                     />
+
                     {searchingUsers ? (
-                      <p className="text-sm text-muted-foreground">Buscando...</p>
+                      <p className="text-sm text-muted-foreground">
+                        Buscando...
+                      </p>
                     ) : null}
+
                     <div className="max-h-48 space-y-2 overflow-auto">
                       {users.map((u) => (
                         <button
                           key={u.id}
                           type="button"
-                          className={`w-full rounded-xl border p-3 text-left ${selectedUserId === u.id ? "bg-muted" : ""}`}
+                          className={`w-full rounded-xl border p-3 text-left ${
+                            selectedUserId === u.id ? "bg-muted" : ""
+                          }`}
                           onClick={() => setSelectedUserId(u.id)}
                         >
                           <p className="text-sm font-medium">
@@ -384,7 +380,7 @@ export default function ChatsPage() {
                   className="w-full rounded-2xl"
                   disabled={!canCreate || creating || inviting}
                   onClick={() =>
-                    void (createType === "group" ? createGroup() : createType === "public" ? createPublic() : createDm())
+                    void (createType === "group" ? createGroup() : createDm())
                   }
                 >
                   {creating ? "Criando..." : "Criar"}
@@ -401,41 +397,38 @@ export default function ChatsPage() {
             type="single"
             value={section}
             onValueChange={(v) =>
-              setSection((v as "public" | "mine") || "public")
+              setSection((v as "public" | "group" | "dm") || "public")
             }
           >
             <SegmentedItem value="public">Públicos</SegmentedItem>
-            <SegmentedItem value="mine">Meus chats</SegmentedItem>
+            <SegmentedItem value="group">Grupos</SegmentedItem>
+            <SegmentedItem value="dm">DMs</SegmentedItem>
           </Segmented>
 
           {section === "public" ? (
             <Button
               className="w-full rounded-2xl"
-              onClick={() => router.push("/app/chats/public/new")}
+              variant="secondary"
+              onClick={() => router.push("/app/chats/public")}
             >
-              <Plus className="mr-2 h-4 w-4" /> Criar chat público
+              <Globe className="mr-2 h-4 w-4" /> Explorar chats públicos
             </Button>
           ) : null}
         </CardContent>
       </Card>
 
       {loading ? (
-        <AppPageSkeleton compact />
-      ) : section === "public" ? (
-        <PublicChatsList
-          chats={publicChats}
-          onOpen={(chatId) => router.push(`/app/chats/${chatId}`)}
-          onJoined={async (chatId) => {
-            await loadChats();
-            router.push(`/app/chats/${chatId}`);
-          }}
-        />
+        <p className="text-sm text-muted-foreground">Carregando...</p>
       ) : (
         <MyChatsList
-          chats={myChats}
+          chats={filteredChats}
           onOpen={(chatId) => router.push(`/app/chats/${chatId}`)}
         />
       )}
+
+      <p className="text-xs text-muted-foreground">
+        Você já participa de {myChats.length} chats.
+      </p>
     </div>
   );
 }
