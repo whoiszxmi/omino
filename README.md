@@ -1,4 +1,4 @@
-# Omino
+# uzure
 
 Aplicação Next.js (App Router) com Supabase Auth.
 

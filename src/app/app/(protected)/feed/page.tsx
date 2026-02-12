@@ -181,6 +181,14 @@ export default function FeedPage() {
           <Button
             variant="secondary"
             className="rounded-2xl"
+            onClick={() => (location.href = "/app/drafts")}
+          >
+            Rascunhos
+          </Button>
+
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
             onClick={() => {
               loadPosts();
               loadHighlights();

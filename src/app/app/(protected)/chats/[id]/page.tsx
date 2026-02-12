@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { UsersRound } from "lucide-react";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
@@ -153,9 +155,8 @@ export default function ChatRoomPage() {
     setSending(false);
   }
 
-  useEffect(() => {
-    if (!chatId || !isUuid(chatId)) {
-      setLoading(false);
+    if (error) {
+      toast.error(error.message);
       return;
     }
 

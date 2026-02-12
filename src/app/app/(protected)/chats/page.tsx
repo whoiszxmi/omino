@@ -5,14 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
@@ -37,6 +31,15 @@ type RpcRow = {
   other_username?: string | null;
 };
 
+type ChatParticipantRow = {
+  chat_id: string;
+};
+
+function parseCreatorAllowlist(raw: string | undefined) {
+  if (!raw) return [];
+  return raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
 export default function ChatsPage() {
   const router = useRouter();
   const { activePersona } = useActivePersona();
@@ -48,8 +51,9 @@ export default function ChatsPage() {
   const [section, setSection] = useState<"public" | "mine">("public");
 
   const [open, setOpen] = useState(false);
-  const [createType, setCreateType] = useState<"group" | "dm">("group");
+  const [createType, setCreateType] = useState<"group" | "dm" | "public">("group");
   const [title, setTitle] = useState("");
+  const [canCreatePublicChats, setCanCreatePublicChats] = useState(false);
 
   const [userQuery, setUserQuery] = useState("");
   const [searchingUsers, setSearchingUsers] = useState(false);
@@ -64,7 +68,6 @@ export default function ChatsPage() {
 
   async function loadChats() {
     setLoading(true);
-
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
     if (!user) {
