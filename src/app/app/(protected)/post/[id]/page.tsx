@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
@@ -29,6 +30,7 @@ export default function PostViewPage() {
 
   const [loading, setLoading] = useState(true);
   const [post, setPost] = useState<PostRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const canEdit = useMemo(() => {
     if (!post || !activePersona) return false;
@@ -64,7 +66,7 @@ export default function PostViewPage() {
       return;
     }
 
-    setPost((data ?? null) as any);
+    setPost((data ?? null) as PostRow | null);
     setLoading(false);
   }
 
@@ -73,6 +75,27 @@ export default function PostViewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId]);
 
+
+  async function deletePost() {
+    if (!post || !activePersona || deleting) return;
+
+    setDeleting(true);
+    const { error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", post.id)
+      .eq("persona_id", activePersona.id);
+
+    setDeleting(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Post excluído.");
+    router.push("/app/feed");
+  }
   const safeHtml = useMemo(() => {
     const html = renderRichHtml(post?.content ?? "");
     return DOMPurify.sanitize(html);
@@ -121,12 +144,27 @@ export default function PostViewPage() {
         </Button>
 
         {canEdit ? (
-          <Button
-            className="rounded-2xl"
-            onClick={() => router.push(`/app/post/${post.id}/edit`)}
-          >
-            Editar
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button className="rounded-2xl" onClick={() => router.push(`/app/post/${post.id}/edit`)}>
+              Editar
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="destructive" className="rounded-2xl">Excluir</Button>
+              </DialogTrigger>
+              <DialogContent className="rounded-2xl">
+                <DialogHeader>
+                  <DialogTitle>Excluir post</DialogTitle>
+                  <DialogDescription>Essa ação não pode ser desfeita.</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="destructive" className="rounded-xl" onClick={() => void deletePost()} disabled={deleting}>
+                    {deleting ? "Excluindo..." : "Confirmar exclusão"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         ) : null}
       </header>
 

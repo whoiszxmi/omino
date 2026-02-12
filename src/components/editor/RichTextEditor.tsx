@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -209,7 +209,7 @@ export default function RichTextEditor({
   const editorCss = useMemo(() => getEditorCss(), []);
 
   // ===== helpers dependentes do editor (mas podem ser usados em eventos) =====
-  function toggleLink(ed: any) {
+  function toggleLink(ed: Editor | null) {
     if (!ed) return;
 
     if (ed.isActive("link")) {
@@ -261,7 +261,7 @@ export default function RichTextEditor({
           compact ? "min-h-[96px]" : "min-h-[160px]",
         ),
         "data-placeholder": placeholder,
-      } as any,
+      },
       handleDOMEvents: {
         keydown: (_view: unknown, event: Event) => {
           const e = event as KeyboardEvent;
@@ -273,7 +273,7 @@ export default function RichTextEditor({
           }
           return false;
         },
-      } as any,
+      },
     },
   });
 
@@ -376,8 +376,9 @@ export default function RichTextEditor({
       } else {
         editor.chain().focus().setImage({ src: url, alt: "image" }).run();
       }
-    } catch (err: any) {
-      console.error("Upload falhou:", err?.message ?? err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Upload falhou:", message);
     }
   }
 

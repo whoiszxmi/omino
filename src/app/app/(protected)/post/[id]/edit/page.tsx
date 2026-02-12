@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import DraftStatusBar from "@/components/drafts/DraftStatusBar";
+import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
+import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 
 type PostRow = {
   id: string;
@@ -27,156 +30,107 @@ export default function PostEditPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [post, setPost] = useState<PostRow | null>(null);
-
   const [contentHtml, setContentHtml] = useState("");
 
-  const canEdit = useMemo(() => {
-    if (!post || !activePersona) return false;
-    return post.persona_id === activePersona.id;
-  }, [post, activePersona]);
+  const canEdit = useMemo(() => !!post && !!activePersona && post.persona_id === activePersona.id, [post, activePersona]);
 
   const canSave = useMemo(() => {
     const html = (contentHtml || "").trim();
-    const sanitized = html
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
+    const sanitized = html.replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
     return !!sanitized;
   }, [contentHtml]);
 
-  async function load() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("posts")
-      .select(
-        `
-        id,
-        content,
-        created_at,
-        persona_id,
-        personas (
-          id,
-          name,
-          avatar_url
-        )
-      `,
-      )
-      .eq("id", postId)
-      .maybeSingle();
-
-    if (error) {
-      console.error("ERRO load post:", error);
-      toast.error(error.message);
-      setPost(null);
-      setLoading(false);
-      return;
-    }
-
-    if (!data) {
-      setPost(null);
-      setLoading(false);
-      return;
-    }
-
-    setPost(data as any);
-    setContentHtml((data as any).content ?? "");
-    setLoading(false);
-  }
+  const drafts = useDraftAutosave({
+    scope: "post",
+    draftKey: `edit:${postId}`,
+    personaId: activePersona?.id ?? null,
+    initialValue: { title: null, contentHtml: post?.content ?? "", coverUrl: null },
+    value: { title: null, contentHtml, coverUrl: null },
+    enabled: !!post,
+    onRestore: (draft) => setContentHtml(draft.contentHtml),
+  });
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    async function load() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+        .eq("id", postId)
+        .maybeSingle();
+
+      if (error) {
+        toast.error(error.message);
+        setPost(null);
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        setPost(null);
+        setLoading(false);
+        return;
+      }
+
+      const row = data as unknown as PostRow;
+      setPost(row);
+      setContentHtml(row.content ?? "");
+      setLoading(false);
+    }
+
+    void load();
   }, [postId]);
 
   async function save() {
     if (!post) return;
     if (!activePersona) return toast.error("Selecione uma persona.");
-    if (!canEdit)
-      return toast.error("Você não tem permissão para editar esse post.");
+    if (!canEdit) return toast.error("Você não tem permissão para editar esse post.");
     if (!canSave) return toast.error("Escreva alguma coisa antes de salvar.");
 
-    const html = contentHtml.trim();
-    const sanitized = html
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
+    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("posts")
-        .update({ content: sanitized })
-        .eq("id", post.id);
-
+      const { error } = await supabase.from("posts").update({ content: sanitized }).eq("id", post.id);
       if (error) throw error;
 
+      await drafts.discard();
       toast.success("Post atualizado!");
       router.push(`/app/post/${post.id}`);
-    } catch (e: any) {
-      console.error("ERRO save post:", e);
-      toast.error(e?.message ?? "Não foi possível salvar.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Não foi possível salvar.";
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <div className="text-sm text-muted-foreground">Carregando...</div>
-      </div>
-    );
-  }
+  if (loading) return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>;
 
   if (!post) {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
         <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Post não encontrado</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Post não encontrado</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div>Esse post pode ter sido removido.</div>
-            <Button
-              variant="secondary"
-              className="w-full rounded-2xl"
-              onClick={() => router.push("/app/feed")}
-            >
-              Voltar para o Feed
-            </Button>
+            <Button variant="secondary" className="w-full rounded-2xl" onClick={() => router.push("/app/feed")}>Voltar para o Feed</Button>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // sem permissão
   if (!canEdit) {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
         <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Sem permissão</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Sem permissão</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <div>
-              Para editar, você precisa estar usando a persona dona desse post.
-            </div>
+            <div>Para editar, você precisa estar usando a persona dona desse post.</div>
             <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                className="rounded-2xl"
-                onClick={() => router.push(`/app/post/${post.id}`)}
-              >
-                Voltar
-              </Button>
-              <Button
-                className="rounded-2xl"
-                onClick={() => router.push("/app/personas")}
-              >
-                Trocar persona
-              </Button>
+              <Button variant="secondary" className="rounded-2xl" onClick={() => router.push(`/app/post/${post.id}`)}>Voltar</Button>
+              <Button className="rounded-2xl" onClick={() => router.push("/app/personas")}>Trocar persona</Button>
             </div>
           </CardContent>
         </Card>
@@ -185,47 +139,28 @@ export default function PostEditPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <header className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold">Editar post</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            Editando como: {activePersona?.name ?? "—"}
-          </p>
+          <h1 className="truncate text-xl font-semibold">Editar post</h1>
+          <p className="truncate text-xs text-muted-foreground">Editando como: {activePersona?.name ?? "—"}</p>
         </div>
-
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          onClick={() => router.push(`/app/post/${post.id}`)}
-        >
-          Voltar
-        </Button>
+        <Button variant="secondary" className="rounded-2xl" onClick={() => router.push(`/app/post/${post.id}`)}>Voltar</Button>
       </header>
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Conteúdo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <RichTextEditor
-            valueHtml={contentHtml}
-            onChangeHtml={setContentHtml}
-            placeholder="Edite seu post..."
-            folder="posts"
-            imageInsertMode="both"
-            enableTables={false}
-          />
+      <DraftStatusBar status={drafts.status} dirty={drafts.dirty} onSaveNow={() => drafts.flush()} onDiscard={() => drafts.discard()} />
 
-          <Button
-            className="w-full rounded-2xl"
-            onClick={save}
-            disabled={saving || !canSave}
-          >
+      <Card className="rounded-2xl">
+        <CardHeader><CardTitle className="text-base">Conteúdo</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite seu post..." folder="posts" imageInsertMode="both" enableTables={false} />
+          <Button className="w-full rounded-2xl" onClick={() => void save()} disabled={saving || !canSave}>
             {saving ? "Salvando..." : "Salvar alterações"}
           </Button>
         </CardContent>
       </Card>
+
+      <DraftRestoreDialog open={!!drafts.restoreCandidate} onRestore={drafts.restore} onDiscard={() => void drafts.discard()} />
     </div>
   );
 }

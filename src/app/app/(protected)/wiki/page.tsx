@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Folder, Plus, RefreshCw } from "lucide-react";
+import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
 
 // Se você quiser que "Novo" abra o chooser (Post ou Wiki), descomente:
 // import { CreateChooser } from "@/components/app/CreateChooser";
@@ -141,6 +141,15 @@ export default function WikiHomePage() {
         </div>
 
         <div className="flex shrink-0 gap-2">
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push("/app/drafts")}
+            title="Rascunhos"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Rascunhos
+          </Button>
           <Button
             variant="secondary"
             className="rounded-2xl"

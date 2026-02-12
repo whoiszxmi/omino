@@ -60,6 +60,7 @@ export function useActivePersona() {
     const { data: personas, error: perErr } = await supabase
       .from("personas")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: true });
 
     if (perErr) {
