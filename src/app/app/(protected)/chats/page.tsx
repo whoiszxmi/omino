@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
@@ -46,9 +46,40 @@ type RpcRow = {
 type CreateType = "public" | "group" | "dm";
 type Section = "public" | "group" | "dm";
 
+function normalizeCreateType(v: string | null): CreateType | null {
+  if (v === "public" || v === "group" || v === "dm") return v;
+  return null;
+}
+
+function normalizeSection(v: string): Section {
+  if (v === "public" || v === "group" || v === "dm") return v;
+  return "public";
+}
+
+/**
+ * ✅ Componente auxiliar: isola useSearchParams para evitar erro de prerender/build.
+ */
+function CreateFromQuery({
+  onOpen,
+  onSetType,
+}: {
+  onOpen: () => void;
+  onSetType: (t: CreateType) => void;
+}) {
+  const sp = useSearchParams();
+  useEffect(() => {
+    const create = normalizeCreateType(sp.get("create"));
+    if (create) {
+      onSetType(create);
+      onOpen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
+  return null;
+}
+
 export default function ChatsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
@@ -103,19 +134,26 @@ export default function ChatsPage() {
     void loadChats();
   }, []);
 
-  useEffect(() => {
-    const create = searchParams.get("create");
-    if (create === "group" || create === "dm" || create === "public") {
-      setCreateType(create);
-      setOpen(true);
-    }
-  }, [searchParams]);
+  function resetCreateForm(nextType?: CreateType) {
+    // Limpa tudo que é “de outro tipo”
+    setTitle("");
+    setUserQuery("");
+    setUsers([]);
+    setSelectedUserId(null);
+    setInviteQuery("");
+    setInviteResults([]);
+    if (nextType) setCreateType(nextType);
+  }
 
   async function searchProfiles(
     query: string,
     setter: (rows: ProfileRow[]) => void,
   ) {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData, error } = await supabase.auth.getUser();
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     const me = userData.user;
     if (!me) return;
 
@@ -160,7 +198,6 @@ export default function ChatsPage() {
         return;
       }
 
-      // convidar (se houver resultados)
       if (inviteResults.length > 0) {
         setInviting(true);
         const rows = inviteResults.map((p) => ({
@@ -180,9 +217,7 @@ export default function ChatsPage() {
 
       toast.success("Grupo criado.");
       setOpen(false);
-      setInviteQuery("");
-      setInviteResults([]);
-      setTitle("");
+      resetCreateForm("group");
 
       await loadChats();
       router.push(`/app/chats/${chatId}`);
@@ -197,14 +232,26 @@ export default function ChatsPage() {
 
     setCreating(true);
     try {
-      // precisa existir no banco: RPC create_public_chat(p_title text)
       const { data, error } = await supabase.rpc("create_public_chat", {
         p_title: t,
         p_default_persona_id: activePersona?.id ?? null,
       });
 
       if (error) {
-        toast.error(error.message);
+        // Mensagem mais útil (RPC inexistente / constraint / RLS)
+        const msg = error.message?.toLowerCase?.() ?? "";
+        if (msg.includes("function") || msg.includes("schema cache")) {
+          toast.error("RPC create_public_chat não encontrada no Supabase.");
+        } else if (
+          msg.includes("violates") ||
+          msg.includes("check constraint")
+        ) {
+          toast.error(
+            "Banco bloqueou o tipo 'public'. Verifique o CHECK (chats_type_check).",
+          );
+        } else {
+          toast.error(error.message);
+        }
         return;
       }
 
@@ -216,7 +263,7 @@ export default function ChatsPage() {
 
       toast.success("Chat público criado.");
       setOpen(false);
-      setTitle("");
+      resetCreateForm("public");
 
       await loadChats();
       router.push(`/app/chats/${chatId}`);
@@ -248,9 +295,7 @@ export default function ChatsPage() {
 
       toast.success("DM pronto.");
       setOpen(false);
-      setSelectedUserId(null);
-      setUserQuery("");
-      setUsers([]);
+      resetCreateForm("dm");
 
       await loadChats();
       router.push(`/app/chats/${chatId}`);
@@ -278,6 +323,17 @@ export default function ChatsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
+      {/* ✅ Isola query params para não quebrar build */}
+      <Suspense fallback={null}>
+        <CreateFromQuery
+          onOpen={() => setOpen(true)}
+          onSetType={(t) => {
+            resetCreateForm(t);
+            setCreateType(t);
+          }}
+        />
+      </Suspense>
+
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="truncate text-2xl font-semibold">Chats</h1>
@@ -291,11 +347,21 @@ export default function ChatsPage() {
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"
             onClick={() => void loadChats()}
+            disabled={loading}
           >
             <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
           </Button>
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) {
+                // opcional: limpa quando fecha
+                resetCreateForm(createType);
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="w-full rounded-2xl sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" /> Novo chat
@@ -311,9 +377,11 @@ export default function ChatsPage() {
                 <Segmented
                   type="single"
                   value={createType}
-                  onValueChange={(v) =>
-                    setCreateType((v as CreateType) || "public")
-                  }
+                  onValueChange={(v) => {
+                    const next = (v as CreateType) || "public";
+                    resetCreateForm(next);
+                    setCreateType(next);
+                  }}
                 >
                   <SegmentedItem value="public">
                     <span className="inline-flex items-center gap-2">
@@ -364,6 +432,11 @@ export default function ChatsPage() {
                           </CardContent>
                         </Card>
                       ))}
+                      {inviteQuery.trim() && inviteResults.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Nenhum usuário encontrado.
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 ) : (
@@ -403,6 +476,11 @@ export default function ChatsPage() {
                           </p>
                         </button>
                       ))}
+                      {userQuery.trim() && users.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Nenhum usuário encontrado.
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 )}
@@ -417,8 +495,8 @@ export default function ChatsPage() {
 
                 {createType !== "dm" && !activePersona ? (
                   <p className="text-xs text-muted-foreground">
-                    Dica: selecione uma persona (seu layout já faz isso) para
-                    criar/entrar com identidade.
+                    Dica: selecione uma persona para criar/entrar com
+                    identidade.
                   </p>
                 ) : null}
               </div>
@@ -432,7 +510,7 @@ export default function ChatsPage() {
           <Segmented
             type="single"
             value={section}
-            onValueChange={(v) => setSection((v as Section) || "public")}
+            onValueChange={(v) => setSection(normalizeSection(v))}
           >
             <SegmentedItem value="public">Públicos</SegmentedItem>
             <SegmentedItem value="group">Grupos</SegmentedItem>
