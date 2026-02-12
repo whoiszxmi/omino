@@ -27,6 +27,8 @@ import {
   UserRound,
   Star,
   FileText,
+  Menu,
+  ChevronRight,
 } from "lucide-react";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -50,6 +52,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const { title, action }: { title: string; action: Action } = useMemo(() => {
     if (pathname.startsWith("/app/feed")) {
