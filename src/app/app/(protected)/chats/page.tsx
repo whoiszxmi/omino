@@ -227,7 +227,7 @@ export default function ChatsPage() {
           </p>
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <div className="flex w-full gap-2 sm:w-auto">
           <Button
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"

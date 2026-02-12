@@ -41,12 +41,7 @@ export default function NewPublicChatPage() {
 
     const { data: chat, error: chatError } = await supabase
       .from("chats")
-      .insert({
-        title: trimmed,
-        type: "public",
-        dm_user_a: null,
-        dm_user_b: null,
-      })
+      .insert({ title: trimmed, type: "public" })
       .select("id")
       .single();
 
@@ -71,7 +66,6 @@ export default function NewPublicChatPage() {
     }
 
     toast.success("Chat público criado.");
-    setCreating(false);
     router.push(`/app/chats/${chat.id}`);
   }
 
