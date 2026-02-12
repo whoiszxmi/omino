@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -63,11 +62,11 @@ export default function ChatsPage() {
 
   async function loadChats() {
     setLoading(true);
-    const myRes = await supabase.rpc("list_my_chats");
 
+    const myRes = await supabase.rpc("list_my_chats");
     if (myRes.error) toast.error(myRes.error.message);
 
-    const publicRows = (publicRes.data ?? []) as ChatRow[];
+    // ✅ aqui era o bug: publicRes não existe e nem é necessário nesta página
     const mineRows = (myRes.data ?? []) as RpcRow[];
 
     setMyChats(
@@ -131,6 +130,7 @@ export default function ChatsPage() {
     if (!t) return toast.error("Dê um nome para o grupo.");
 
     setCreating(true);
+
     const { data, error } = await supabase.rpc("create_group_chat", {
       p_title: t,
       p_default_persona_id: activePersona?.id ?? null,
@@ -149,14 +149,20 @@ export default function ChatsPage() {
       return;
     }
 
+    // opcional: convidar resultados (você pode trocar por “selecionados” depois)
     if (inviteResults.length > 0) {
       setInviting(true);
-      const rows = inviteResults.map((p) => ({ chat_id: chatId, user_id: p.id }));
+      const rows = inviteResults.map((p) => ({
+        chat_id: chatId,
+        user_id: p.id,
+      }));
       const inviteRes = await supabase
         .from("chat_participants")
         .upsert(rows, { onConflict: "chat_id,user_id" });
-      if (inviteRes.error)
+
+      if (inviteRes.error) {
         toast.error(`Falha ao convidar: ${inviteRes.error.message}`);
+      }
       setInviting(false);
     }
 
@@ -165,8 +171,10 @@ export default function ChatsPage() {
     setInviteQuery("");
     setInviteResults([]);
     setTitle("");
+
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+
     setCreating(false);
   }
 
@@ -174,6 +182,7 @@ export default function ChatsPage() {
     if (!selectedUserId) return toast.error("Selecione um usuário.");
 
     setCreating(true);
+
     const { data, error } = await supabase.rpc("create_dm_chat", {
       p_other_user_id: selectedUserId,
       p_default_persona_id: activePersona?.id ?? null,
@@ -197,8 +206,10 @@ export default function ChatsPage() {
     setSelectedUserId(null);
     setUserQuery("");
     setUsers([]);
+
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+
     setCreating(false);
   }
 
@@ -208,15 +219,9 @@ export default function ChatsPage() {
   );
 
   const filteredChats = useMemo(() => {
-    if (section === "dm") {
-      return myChats.filter((chat) => chat.type === "dm");
-    }
-
-    if (section === "group") {
-      return myChats.filter((chat) => chat.type === "group");
-    }
-
-    return myChats.filter((chat) => chat.type === "public");
+    if (section === "dm") return myChats.filter((c) => c.type === "dm");
+    if (section === "group") return myChats.filter((c) => c.type === "group");
+    return myChats.filter((c) => c.type === "public");
   }, [myChats, section]);
 
   return (
@@ -237,16 +242,19 @@ export default function ChatsPage() {
           >
             <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
           </Button>
+
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="w-full rounded-2xl sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" /> Novo chat
               </Button>
             </DialogTrigger>
+
             <DialogContent className="rounded-2xl">
               <DialogHeader>
                 <DialogTitle>Criar chat</DialogTitle>
               </DialogHeader>
+
               <div className="space-y-3">
                 <Segmented
                   type="single"
@@ -266,8 +274,9 @@ export default function ChatsPage() {
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
+
                     <Input
-                      placeholder="Convidar por e-mail ou @username"
+                      placeholder="Convidar por @username / nome"
                       value={inviteQuery}
                       onChange={(e) => {
                         const next = e.target.value;
@@ -275,6 +284,7 @@ export default function ChatsPage() {
                         void searchProfiles(next, setInviteResults);
                       }}
                     />
+
                     <div className="max-h-40 space-y-2 overflow-auto">
                       {inviteResults.map((u) => (
                         <Card key={u.id} className="rounded-xl border">
@@ -297,15 +307,21 @@ export default function ChatsPage() {
                         void searchProfiles(next, setUsers);
                       }}
                     />
+
                     {searchingUsers ? (
-                      <p className="text-sm text-muted-foreground">Buscando...</p>
+                      <p className="text-sm text-muted-foreground">
+                        Buscando...
+                      </p>
                     ) : null}
+
                     <div className="max-h-48 space-y-2 overflow-auto">
                       {users.map((u) => (
                         <button
                           key={u.id}
                           type="button"
-                          className={`w-full rounded-xl border p-3 text-left ${selectedUserId === u.id ? "bg-muted" : ""}`}
+                          className={`w-full rounded-xl border p-3 text-left ${
+                            selectedUserId === u.id ? "bg-muted" : ""
+                          }`}
                           onClick={() => setSelectedUserId(u.id)}
                         >
                           <p className="text-sm font-medium">
