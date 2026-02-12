@@ -15,11 +15,11 @@ type UiMessage = {
   id: string;
   content: string;
   created_at: string;
+  persona_id: string; // ✅ important: persona usada na msg
   persona: {
-    id: string;
+    id: string; // id da persona (autor)
     name: string;
     avatar_url: string | null;
-
     user_id: string | null;
 
     username: string | null;
@@ -72,7 +72,6 @@ export default function ChatRoomPage() {
   const [chatTitle, setChatTitle] = useState("Chat");
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   function scrollToBottom(smooth = true) {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
@@ -81,84 +80,86 @@ export default function ChatRoomPage() {
   async function loadMessages(validChatId: string) {
     setLoading(true);
 
-    // título do chat (não bloqueia)
-    const chatRes = await supabase
-      .from("chats")
-      .select("title")
-      .eq("id", validChatId)
-      .maybeSingle();
+    try {
+      // título do chat (não bloqueia)
+      const chatRes = await supabase
+        .from("chats")
+        .select("title")
+        .eq("id", validChatId)
+        .maybeSingle();
 
-    if (chatRes.data?.title) setChatTitle(chatRes.data.title);
+      if (chatRes.data?.title) setChatTitle(chatRes.data.title);
 
-    const { data, error } = await supabase
-      .from("messages")
-      .select(
-        "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)",
-      )
-      .eq("chat_id", validChatId)
-      .order("created_at", { ascending: true })
-      .limit(200);
+      const { data, error } = await supabase
+        .from("messages")
+        .select(
+          "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)",
+        )
+        .eq("chat_id", validChatId)
+        .order("created_at", { ascending: true })
+        .limit(200);
 
-    if (error) {
-      toast.error(error.message);
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
-
-    const rows = (data ?? []) as unknown as MessageRow[];
-
-    // pega user_ids válidos (não-nulos)
-    const userIds = Array.from(
-      new Set(
-        rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
-      ),
-    );
-
-    let profileMap = new Map<string, ProfileRow>();
-    if (userIds.length > 0) {
-      const profilesRes = await supabase
-        .from("profiles")
-        .select("id,username,display_name,avatar_url")
-        .in("id", userIds);
-
-      if (!profilesRes.error) {
-        profileMap = new Map(
-          (profilesRes.data ?? []).map((profile) => [
-            profile.id,
-            profile as ProfileRow,
-          ]),
-        );
+      if (error) {
+        toast.error(error.message);
+        setMessages([]);
+        return;
       }
+
+      const rows = (data ?? []) as unknown as MessageRow[];
+
+      // pega user_ids válidos (não-nulos)
+      const userIds = Array.from(
+        new Set(
+          rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
+        ),
+      );
+
+      let profileMap = new Map<string, ProfileRow>();
+      if (userIds.length > 0) {
+        const profilesRes = await supabase
+          .from("profiles")
+          .select("id,username,display_name,avatar_url")
+          .in("id", userIds);
+
+        if (!profilesRes.error) {
+          profileMap = new Map(
+            (profilesRes.data ?? []).map((profile) => [
+              profile.id,
+              profile as ProfileRow,
+            ]),
+          );
+        }
+      }
+
+      setMessages(
+        rows.map((row) => {
+          const uid = row.personas.user_id;
+          const profile = uid ? profileMap.get(uid) : undefined;
+
+          return {
+            id: row.id,
+            content: row.content,
+            created_at: row.created_at,
+            persona_id: row.persona_id, // ✅ keep it
+            persona: {
+              id: row.personas.id, // id da persona do autor
+              name: row.personas.name,
+              avatar_url: row.personas.avatar_url,
+              user_id: row.personas.user_id,
+
+              username: profile?.username ?? null,
+              display_name: profile?.display_name ?? null,
+              user_avatar: profile?.avatar_url ?? null,
+            },
+          };
+        }),
+      );
+
+      // scroll no final
+      setTimeout(() => scrollToBottom(false), 0);
+    } finally {
+      setLoading(false);
     }
-
-    setMessages(
-      rows.map((row) => {
-        const uid = row.personas.user_id;
-        const profile = uid ? profileMap.get(uid) : undefined;
-
-        return {
-          id: row.id,
-          content: row.content,
-          created_at: row.created_at,
-          persona: {
-            // ✅ persona id de verdade:
-            id: row.personas.id,
-            name: row.personas.name,
-            avatar_url: row.personas.avatar_url,
-
-            user_id: row.personas.user_id,
-
-            username: profile?.username ?? null,
-            display_name: profile?.display_name ?? null,
-            user_avatar: profile?.avatar_url ?? null,
-          },
-        };
-      }),
-    );
-
-    setLoading(false);
-    setTimeout(() => scrollToBottom(false), 0);
   }
 
   async function sendMessage() {
@@ -166,31 +167,30 @@ export default function ChatRoomPage() {
     if (!activePersona || sending) return;
 
     const cleaned = (inputHtml || "").replace(/<p>\s*<\/p>/g, "").trim();
-
     if (!cleaned) return;
 
     setSending(true);
+    try {
+      const { error } = await supabase.from("messages").insert({
+        chat_id: chatId,
+        persona_id: activePersona.id,
+        content: cleaned,
+      });
 
-    const { error } = await supabase.from("messages").insert({
-      chat_id: chatId,
-      persona_id: activePersona.id,
-      content: cleaned,
-    });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
 
-    if (error) {
-      toast.error(error.message);
+      setInputHtml("");
+      // deixa realtime puxar — mas carregar aqui dá sensação imediata
+      await loadMessages(chatId);
+    } finally {
       setSending(false);
-      return;
     }
-
-    setInputHtml("");
-    // opcional: você pode só dar scroll e deixar realtime atualizar,
-    // mas manter loadMessages funciona bem (só é mais pesado).
-    await loadMessages(chatId);
-    setSending(false);
   }
 
-  // ✅ ESTE useEffect estava faltando (era o motivo do parse error)
+  // ✅ subscribe realtime + load inicial
   useEffect(() => {
     if (!chatId || !isUuid(chatId)) {
       setLoading(false);
@@ -234,7 +234,9 @@ export default function ChatRoomPage() {
         out.push({ kind: "day", label });
         lastDay = label;
       }
-      out.push({ kind: "msg", m, mine: m.persona.id === activePersona?.id });
+
+      // ✅ mine correto: compara persona_id da msg com persona ativa
+      out.push({ kind: "msg", m, mine: m.persona_id === activePersona?.id });
     }
     return out;
   }, [messages, activePersona?.id]);
@@ -264,10 +266,7 @@ export default function ChatRoomPage() {
         </div>
       </header>
 
-      <div
-        ref={listRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
-      >
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8">
         {!chatId || !isUuid(chatId) ? (
           <p className="text-sm text-muted-foreground">Chat inválido.</p>
         ) : loading ? (
@@ -285,6 +284,8 @@ export default function ChatRoomPage() {
             }
 
             const safe = DOMPurify.sanitize(renderRichHtml(item.m.content));
+            const avatar =
+              item.m.persona.user_avatar ?? item.m.persona.avatar_url ?? null;
 
             return (
               <div
@@ -303,8 +304,7 @@ export default function ChatRoomPage() {
                       username: item.m.persona.username,
                       display_name:
                         item.m.persona.display_name ?? item.m.persona.name,
-                      avatar_url:
-                        item.m.persona.user_avatar ?? item.m.persona.avatar_url,
+                      avatar_url: avatar,
                     }}
                   >
                     <button
@@ -312,17 +312,17 @@ export default function ChatRoomPage() {
                       className="mb-2 flex items-center gap-2 text-left"
                     >
                       <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
-                        {item.m.persona.avatar_url ? (
+                        {avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={item.m.persona.avatar_url}
+                            src={avatar}
                             alt="avatar"
                             className="h-full w-full object-cover"
                           />
                         ) : null}
                       </div>
                       <span className="text-xs font-semibold opacity-80">
-                        {item.m.persona.name}
+                        {item.m.persona.display_name ?? item.m.persona.name}
                       </span>
                     </button>
                   </UserCardModal>
@@ -336,6 +336,7 @@ export default function ChatRoomPage() {
             );
           })
         )}
+
         <div ref={bottomRef} />
       </div>
 
