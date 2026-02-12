@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Globe, MessageCircle, PlusCircle, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
@@ -32,13 +31,6 @@ type RpcRow = {
   other_username?: string | null;
 };
 
-type PublicChatRow = {
-  id: string;
-  title: string | null;
-  last_message_at: string | null;
-  last_message_text: string | null;
-};
-
 type ChatParticipantRow = {
   chat_id: string;
 };
@@ -55,6 +47,7 @@ export default function ChatsPage() {
   const [loading, setLoading] = useState(true);
   const [publicChats, setPublicChats] = useState<PublicChatItem[]>([]);
   const [myChats, setMyChats] = useState<MyChatItem[]>([]);
+  const [myChatIds, setMyChatIds] = useState<string[]>([]);
   const [section, setSection] = useState<"public" | "mine">("public");
 
   const [open, setOpen] = useState(false);
@@ -70,6 +63,7 @@ export default function ChatsPage() {
   const [inviteQuery, setInviteQuery] = useState("");
   const [inviteResults, setInviteResults] = useState<ProfileRow[]>([]);
   const [inviting, setInviting] = useState(false);
+
   const [creating, setCreating] = useState(false);
 
   async function loadChats() {
@@ -81,17 +75,13 @@ export default function ChatsPage() {
       return;
     }
 
-    const allowlist = parseCreatorAllowlist(process.env.NEXT_PUBLIC_PUBLIC_CHAT_CREATORS);
-    setCanCreatePublicChats(allowlist.includes((user.email ?? "").toLowerCase()));
+    const publicRes = await supabase
+      .from("chats")
+      .select("id,title,last_message_at,last_message_text")
+      .eq("type", "public")
+      .order("last_message_at", { ascending: false, nullsFirst: false });
 
-    const [publicRes, myRes] = await Promise.all([
-      supabase
-        .from("chats")
-        .select("id,title,last_message_at,last_message_text")
-        .eq("type", "public")
-        .order("last_message_at", { ascending: false, nullsFirst: false }),
-      supabase.rpc("list_my_chats"),
-    ]);
+    const myRes = await supabase.rpc("list_my_chats");
 
     if (publicRes.error) toast.error(publicRes.error.message);
     if (myRes.error) toast.error(myRes.error.message);
@@ -99,35 +89,26 @@ export default function ChatsPage() {
     const mineRows = (myRes.data ?? []) as RpcRow[];
     const myIds = mineRows.map((row) => row.id);
 
-    const publicRows = (publicRes.data ?? []) as PublicChatRow[];
-    const publicIds = publicRows.map((row) => row.id);
-
-    const membersMap = new Map<string, number>();
-    if (publicIds.length > 0) {
-      const membersRes = await supabase.from("chat_participants").select("chat_id").in("chat_id", publicIds);
-      const memberRows = (membersRes.data ?? []) as ChatParticipantRow[];
-      for (const row of memberRows) {
-        membersMap.set(row.chat_id, (membersMap.get(row.chat_id) ?? 0) + 1);
-      }
-    }
-
+    setMyChatIds(myIds);
     setPublicChats(
-      publicRows.map((chat) => ({
+      ((publicRes.data ?? []) as Omit<PublicChatItem, "participant">[]).map((chat) => ({
         ...chat,
         participant: myIds.includes(chat.id),
-        membersCount: membersMap.get(chat.id) ?? 0,
       })),
     );
 
     setMyChats(
-      mineRows.map((row) => ({
-        id: row.id,
-        type: row.type,
-        title: row.type === "dm" ? row.other_display_name ?? row.other_username ?? "DM" : row.title,
-        last_message_at: row.last_message_at,
-        last_message_text: row.last_message_text,
-        unread: row.unread,
-      })),
+      mineRows.map((row) => {
+        const dmTitle = row.other_display_name ?? row.other_username ?? "DM";
+        return {
+          id: row.id,
+          type: row.type,
+          title: row.type === "dm" ? dmTitle : row.title,
+          last_message_at: row.last_message_at,
+          last_message_text: row.last_message_text,
+          unread: row.unread,
+        };
+      }),
     );
 
     setLoading(false);
@@ -162,93 +143,44 @@ export default function ChatsPage() {
   }
 
   async function createGroup() {
-    if (!title.trim()) return toast.error("Dê um nome para o grupo.");
-    setCreating(true);
+    const t = title.trim();
+    if (!t) return toast.error("Dê um nome para o grupo.");
 
+    setCreating(true);
     const { data, error } = await supabase.rpc("create_group_chat", {
-      p_title: title.trim(),
+      p_title: t,
       p_default_persona_id: activePersona?.id ?? null,
     });
 
     if (error) {
+      toast.error(error.message);
       setCreating(false);
-      return toast.error(error.message);
+      return;
     }
 
     const chatId = data as string | null;
     if (!chatId) {
+      toast.error("Não foi possível criar o grupo.");
       setCreating(false);
-      return toast.error("Não foi possível criar o grupo.");
+      return;
     }
 
     if (inviteResults.length > 0) {
       setInviting(true);
-      await supabase.from("chat_participants").upsert(
-        inviteResults.map((item) => ({ chat_id: chatId, user_id: item.id })),
-        { onConflict: "chat_id,user_id" },
-      );
+      const rows = inviteResults.map((p) => ({ chat_id: chatId, user_id: p.id }));
+      const inviteRes = await supabase.from("chat_participants").upsert(rows, { onConflict: "chat_id,user_id" });
+      if (inviteRes.error) toast.error(`Falha ao convidar: ${inviteRes.error.message}`);
       setInviting(false);
     }
 
     toast.success("Grupo criado.");
-    setCreating(false);
     setOpen(false);
-    setTitle("");
     setInviteQuery("");
     setInviteResults([]);
-    await loadChats();
-    router.push(`/app/chats/${chatId}`);
-  }
-
-  async function createPublicChat() {
-    if (!canCreatePublicChats) return toast.error("Você não tem permissão para criar chat público.");
-    if (!title.trim()) return toast.error("Dê um nome para o chat público.");
-
-    setCreating(true);
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-
-    if (!user) {
-      setCreating(false);
-      return toast.error("Sessão expirada.");
-    }
-
-    const payload: Record<string, string> = {
-      type: "public",
-      title: title.trim(),
-      created_by: user.id,
-    };
-
-    let insert = await supabase.from("chats").insert(payload).select("id").single();
-    if (insert.error) {
-      const fallbackPayload: Record<string, string> = {
-        type: "public",
-        title: title.trim(),
-      };
-      insert = await supabase.from("chats").insert(fallbackPayload).select("id").single();
-    }
-
-    if (insert.error || !insert.data) {
-      setCreating(false);
-      return toast.error(insert.error?.message ?? "Falha ao criar chat público.");
-    }
-
-    const chatId = (insert.data as { id: string }).id;
-    await supabase.from("chat_participants").upsert(
-      {
-        chat_id: chatId,
-        user_id: user.id,
-        role: "owner",
-      },
-      { onConflict: "chat_id,user_id" },
-    );
-
-    setCreating(false);
-    setOpen(false);
     setTitle("");
-    toast.success("Chat público criado.");
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+    setCreating(false);
   }
 
   async function createDm() {
@@ -261,30 +193,32 @@ export default function ChatsPage() {
     });
 
     if (error) {
+      toast.error(error.message);
       setCreating(false);
-      return toast.error(error.message);
+      return;
     }
 
     const chatId = data as string | null;
     if (!chatId) {
+      toast.error("Não foi possível criar DM.");
       setCreating(false);
-      return toast.error("Não foi possível criar DM.");
+      return;
     }
 
-    setCreating(false);
+    toast.success("DM pronto.");
     setOpen(false);
     setSelectedUserId(null);
     setUserQuery("");
     setUsers([]);
-    toast.success("DM pronta.");
     await loadChats();
     router.push(`/app/chats/${chatId}`);
+    setCreating(false);
   }
 
-  const canCreate = useMemo(() => {
-    if (createType === "dm") return !!selectedUserId;
-    return !!title.trim();
-  }, [createType, selectedUserId, title]);
+  const canCreate = useMemo(
+    () => (createType === "group" ? !!title.trim() : !!selectedUserId),
+    [createType, selectedUserId, title],
+  );
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
@@ -295,22 +229,44 @@ export default function ChatsPage() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="secondary" className="rounded-2xl" onClick={() => void loadChats()}>Atualizar</Button>
+          <Button variant="secondary" className="rounded-2xl" onClick={() => void loadChats()}>
+            Atualizar
+          </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="rounded-2xl"><PlusCircle className="mr-2 h-4 w-4" /> Novo chat</Button>
+              <Button className="rounded-2xl">Novo chat</Button>
             </DialogTrigger>
             <DialogContent className="rounded-2xl">
-              <DialogHeader><DialogTitle>Criar chat</DialogTitle></DialogHeader>
-
+              <DialogHeader>
+                <DialogTitle>Criar chat</DialogTitle>
+              </DialogHeader>
               <div className="space-y-3">
-                <ToggleGroup type="single" value={createType} onValueChange={(v) => setCreateType((v as "group" | "dm" | "public") || "group")}>
-                  {canCreatePublicChats ? <ToggleGroupItem value="public" className="rounded-xl border"><Globe className="mr-1 h-4 w-4" /> Público</ToggleGroupItem> : null}
-                  <ToggleGroupItem value="group" className="rounded-xl border"><Users className="mr-1 h-4 w-4" /> Grupo</ToggleGroupItem>
-                  <ToggleGroupItem value="dm" className="rounded-xl border"><MessageCircle className="mr-1 h-4 w-4" /> DM</ToggleGroupItem>
+                <ToggleGroup type="single" value={createType} onValueChange={(v) => setCreateType((v as "group" | "dm") || "group")}>
+                  <ToggleGroupItem value="group" className="rounded-xl border">Grupo</ToggleGroupItem>
+                  <ToggleGroupItem value="dm" className="rounded-xl border">DM</ToggleGroupItem>
                 </ToggleGroup>
 
-                {createType === "dm" ? (
+                {createType === "group" ? (
+                  <>
+                    <Input placeholder="Nome do grupo" value={title} onChange={(e) => setTitle(e.target.value)} />
+                    <Input
+                      placeholder="Convidar por e-mail ou @username"
+                      value={inviteQuery}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setInviteQuery(next);
+                        void searchProfiles(next, setInviteResults);
+                      }}
+                    />
+                    <div className="max-h-40 space-y-2 overflow-auto">
+                      {inviteResults.map((u) => (
+                        <Card key={u.id} className="rounded-xl border">
+                          <CardContent className="p-2 text-sm">{u.display_name ?? u.username ?? "Usuário"}</CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </>
+                ) : (
                   <>
                     <Input
                       placeholder="Buscar usuário"
@@ -324,47 +280,22 @@ export default function ChatsPage() {
                     />
                     {searchingUsers ? <p className="text-sm text-muted-foreground">Buscando...</p> : null}
                     <div className="max-h-48 space-y-2 overflow-auto">
-                      {users.map((user) => (
-                        <button key={user.id} type="button" className={`w-full rounded-xl border p-3 text-left ${selectedUserId === user.id ? "bg-muted" : ""}`} onClick={() => setSelectedUserId(user.id)}>
-                          <p className="text-sm font-medium">{user.display_name ?? user.username ?? "Usuário"}</p>
-                          <p className="text-xs text-muted-foreground">@{user.username ?? "sem-username"}</p>
+                      {users.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          className={`w-full rounded-xl border p-3 text-left ${selectedUserId === u.id ? "bg-muted" : ""}`}
+                          onClick={() => setSelectedUserId(u.id)}
+                        >
+                          <p className="text-sm font-medium">{u.display_name ?? u.username ?? "Usuário"}</p>
+                          <p className="text-xs text-muted-foreground">@{u.username ?? "sem-username"}</p>
                         </button>
                       ))}
                     </div>
                   </>
-                ) : (
-                  <>
-                    <Input placeholder={createType === "public" ? "Nome do chat público" : "Nome do grupo"} value={title} onChange={(e) => setTitle(e.target.value)} />
-                    {createType === "group" ? (
-                      <>
-                        <Input
-                          placeholder="Convidar por e-mail ou @username"
-                          value={inviteQuery}
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            setInviteQuery(next);
-                            void searchProfiles(next, setInviteResults);
-                          }}
-                        />
-                        <div className="max-h-40 space-y-2 overflow-auto">
-                          {inviteResults.map((user) => (
-                            <Card key={user.id} className="rounded-xl border"><CardContent className="p-2 text-sm">{user.display_name ?? user.username ?? "Usuário"}</CardContent></Card>
-                          ))}
-                        </div>
-                      </>
-                    ) : null}
-                  </>
                 )}
 
-                <Button
-                  className="w-full rounded-2xl"
-                  disabled={!canCreate || creating || inviting}
-                  onClick={() => {
-                    if (createType === "dm") return void createDm();
-                    if (createType === "public") return void createPublicChat();
-                    return void createGroup();
-                  }}
-                >
+                <Button className="w-full rounded-2xl" disabled={!canCreate || creating || inviting} onClick={() => void (createType === "group" ? createGroup() : createDm())}>
                   {creating ? "Criando..." : "Criar"}
                 </Button>
               </div>
@@ -376,8 +307,8 @@ export default function ChatsPage() {
       <Card className="rounded-2xl border shadow-sm">
         <CardContent className="p-3">
           <ToggleGroup type="single" value={section} onValueChange={(v) => setSection((v as "public" | "mine") || "public")}>
-            <ToggleGroupItem value="public" className="rounded-xl border text-sm"><Globe className="mr-1 h-4 w-4" /> Públicos</ToggleGroupItem>
-            <ToggleGroupItem value="mine" className="rounded-xl border text-sm"><Users className="mr-1 h-4 w-4" /> Meus chats</ToggleGroupItem>
+            <ToggleGroupItem value="public" className="rounded-xl border text-sm">Públicos</ToggleGroupItem>
+            <ToggleGroupItem value="mine" className="rounded-xl border text-sm">Meus chats</ToggleGroupItem>
           </ToggleGroup>
         </CardContent>
       </Card>
@@ -396,6 +327,8 @@ export default function ChatsPage() {
       ) : (
         <MyChatsList chats={myChats} onOpen={(chatId) => router.push(`/app/chats/${chatId}`)} />
       )}
+
+      <p className="text-xs text-muted-foreground">Você já participa de {myChatIds.length} chats.</p>
     </div>
   );
 }
