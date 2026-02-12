@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,9 +9,7 @@ import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
-
-// Se você quiser que "Novo" abra o chooser (Post ou Wiki), descomente:
-// import { CreateChooser } from "@/components/app/CreateChooser";
+import { supabase } from "@/lib/supabase/client";
 
 type Category = {
   id: string;
@@ -45,9 +42,6 @@ export default function WikiHomePage() {
   const [searchDebounced, setSearchDebounced] = useState("");
 
   const [catFilter, setCatFilter] = useState<string>(FILTER_ALL);
-
-  // Se quiser "Novo" abrir chooser:
-  // const [createOpen, setCreateOpen] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -84,7 +78,8 @@ export default function WikiHomePage() {
   }
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // debounce simples
@@ -92,6 +87,16 @@ export default function WikiHomePage() {
     const t = setTimeout(() => setSearchDebounced(search.trim()), 180);
     return () => clearTimeout(t);
   }, [search]);
+
+  function goNewWiki() {
+    if (!activePersona) {
+      toast.error("Selecione uma persona para criar wiki.");
+      return;
+    }
+
+    // ✅ padronizado: UMA rota
+    router.push("/app/wiki/new");
+  }
 
   // categorias raiz (pastas principais)
   const rootCats = useMemo(() => cats.filter((c) => !c.parent_id), [cats]);
@@ -126,9 +131,9 @@ export default function WikiHomePage() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
       {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold">Wiki</h1>
+          <h1 className="text-xl font-semibold">Wiki</h1>
           <p className="truncate text-xs text-muted-foreground">
             {activePersona
               ? `Criando como: ${activePersona.name}`
@@ -136,55 +141,51 @@ export default function WikiHomePage() {
           </p>
         </div>
 
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+        {/* ✅ toolbar responsiva (mobile scroll) */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] md:overflow-visible md:pb-0">
           <Button
             variant="secondary"
-            className="w-full rounded-2xl sm:w-auto"
+            className="shrink-0 rounded-2xl"
             onClick={() => router.push("/app/drafts")}
             title="Rascunhos"
           >
             <FileText className="mr-2 h-4 w-4" />
             Rascunhos
           </Button>
+
           <Button
             variant="secondary"
-            className="w-full rounded-2xl sm:w-auto"
-            onClick={load}
+            className="shrink-0 rounded-2xl"
+            onClick={() => void load()}
             title="Atualizar"
+            disabled={loading}
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             Atualizar
           </Button>
 
           <Button
-            className="w-full rounded-2xl sm:w-auto"
+            className="shrink-0 rounded-2xl"
             disabled={!activePersona}
-            onClick={() => {
-              if (!activePersona) {
-                toast.error("Selecione uma persona");
-                return;
-              }
-              router.push("/app/wiki/new");
-            }}
+            onClick={goNewWiki}
             title={
               !activePersona ? "Selecione uma persona para criar" : "Nova wiki"
             }
           >
             <Plus className="mr-2 h-4 w-4" />
-            Nova
+            Nova wiki
           </Button>
 
-          {/* Se quiser usar o chooser:
           <Button
-            className="rounded-2xl"
-            disabled={!activePersona}
-            onClick={() => setCreateOpen(true)}
+            type="button"
+            variant="secondary"
+            className="shrink-0 rounded-2xl"
+            onClick={() => router.push("/app/wiki/categories")}
+            title="Pastas"
           >
-            <Plus className="mr-2 h-4 w-4" />
-            Novo
+            <Folder className="mr-2 h-4 w-4" />
+            Pastas
           </Button>
-          <CreateChooser open={createOpen} onOpenChange={setCreateOpen} />
-          */}
         </div>
       </header>
 
@@ -197,41 +198,25 @@ export default function WikiHomePage() {
         />
 
         {/* filtro por pasta */}
-        <div className="flex flex-col gap-2">
-          <Segmented
-            type="single"
-            value={catFilter}
-            onValueChange={(v) => setCatFilter(v || FILTER_ALL)}
-            className="flex flex-wrap gap-2"
-          >
-            <SegmentedItem value={FILTER_ALL}>
-              Todas
-            </SegmentedItem>
-            <SegmentedItem value={FILTER_NONE}>
-              Sem pasta
-            </SegmentedItem>
+        <div className="space-y-2">
+          {/* ✅ wrapper para não “vazar” no mobile */}
+          <div className="overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
+            <Segmented
+              type="single"
+              value={catFilter}
+              onValueChange={(v) => setCatFilter(v || FILTER_ALL)}
+              className="min-w-max"
+            >
+              <SegmentedItem value={FILTER_ALL}>Todas</SegmentedItem>
+              <SegmentedItem value={FILTER_NONE}>Sem pasta</SegmentedItem>
 
-            {rootCats.slice(0, 6).map((c) => (
-              <SegmentedItem
-                key={c.id}
-                value={c.id}
-                title={c.name}
-              >
-                {c.name}
-              </SegmentedItem>
-            ))}
-          </Segmented>
-
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full rounded-2xl sm:w-auto"
-            onClick={() => router.push("/app/wiki/categories")}
-            title="Ver todas as pastas"
-          >
-            <Folder className="mr-2 h-4 w-4" />
-            Pastas
-          </Button>
+              {rootCats.slice(0, 6).map((c) => (
+                <SegmentedItem key={c.id} value={c.id} title={c.name}>
+                  {c.name}
+                </SegmentedItem>
+              ))}
+            </Segmented>
+          </div>
         </div>
       </div>
 
@@ -251,11 +236,11 @@ export default function WikiHomePage() {
 
         <CardContent>
           {loading ? (
-            <div className="grid grid-cols-2 gap-3">
-              {Array.from({ length: 4 }).map((_, i) => (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
-                  className="h-20 rounded-2xl border bg-muted/40 animate-pulse"
+                  className="h-20 animate-pulse rounded-2xl border bg-muted/40"
                 />
               ))}
             </div>
@@ -264,7 +249,7 @@ export default function WikiHomePage() {
               Nenhuma pasta ainda. Abra <b>Gerenciar</b> para criar.
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {rootCats.slice(0, 6).map((c) => (
                 <button
                   key={c.id}
@@ -283,7 +268,7 @@ export default function WikiHomePage() {
         </CardContent>
       </Card>
 
-      {/* Wikis (cards quadrados) */}
+      {/* Wikis */}
       <Card className="rounded-2xl">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">
@@ -297,11 +282,11 @@ export default function WikiHomePage() {
 
         <CardContent>
           {loading ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
-                  className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
+                  className="aspect-square animate-pulse rounded-2xl border bg-muted/40"
                 />
               ))}
             </div>
@@ -350,7 +335,7 @@ export default function WikiHomePage() {
           )}
 
           {!loading && (
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <Button
                 variant="secondary"
                 className="w-full rounded-2xl"
@@ -361,7 +346,7 @@ export default function WikiHomePage() {
               <Button
                 className="w-full rounded-2xl"
                 disabled={!activePersona}
-                onClick={() => router.push("/app/wiki/new")}
+                onClick={goNewWiki}
               >
                 Criar wiki
               </Button>
