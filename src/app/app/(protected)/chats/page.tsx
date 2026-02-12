@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -17,7 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
-import { Globe, Plus, RefreshCw } from "lucide-react";
+import {
+  Globe,
+  Plus,
+  RefreshCw,
+  UsersRound,
+  MessageCircle,
+} from "lucide-react";
 import MyChatsList, { type MyChatItem } from "@/components/chats/MyChatsList";
 
 type ProfileRow = {
@@ -38,6 +43,9 @@ type RpcRow = {
   other_username?: string | null;
 };
 
+type CreateType = "public" | "group" | "dm";
+type Section = "public" | "group" | "dm";
+
 export default function ChatsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -45,10 +53,10 @@ export default function ChatsPage() {
 
   const [loading, setLoading] = useState(true);
   const [myChats, setMyChats] = useState<MyChatItem[]>([]);
-  const [section, setSection] = useState<"public" | "group" | "dm">("public");
+  const [section, setSection] = useState<Section>("public");
 
   const [open, setOpen] = useState(false);
-  const [createType, setCreateType] = useState<"group" | "dm">("group");
+  const [createType, setCreateType] = useState<CreateType>("public");
   const [title, setTitle] = useState("");
 
   const [userQuery, setUserQuery] = useState("");
@@ -65,9 +73,13 @@ export default function ChatsPage() {
     setLoading(true);
 
     const myRes = await supabase.rpc("list_my_chats");
-    if (myRes.error) toast.error(myRes.error.message);
+    if (myRes.error) {
+      toast.error(myRes.error.message);
+      setMyChats([]);
+      setLoading(false);
+      return;
+    }
 
-    // ✅ aqui era o bug: publicRes não existe e nem é necessário nesta página
     const mineRows = (myRes.data ?? []) as RpcRow[];
 
     setMyChats(
@@ -93,7 +105,7 @@ export default function ChatsPage() {
 
   useEffect(() => {
     const create = searchParams.get("create");
-    if (create === "group" || create === "dm") {
+    if (create === "group" || create === "dm" || create === "public") {
       setCreateType(create);
       setOpen(true);
     }
@@ -131,52 +143,52 @@ export default function ChatsPage() {
     if (!t) return toast.error("Dê um nome para o grupo.");
 
     setCreating(true);
+    try {
+      const { data, error } = await supabase.rpc("create_group_chat", {
+        p_title: t,
+        p_default_persona_id: activePersona?.id ?? null,
+      });
 
-    const { data, error } = await supabase.rpc("create_group_chat", {
-      p_title: t,
-      p_default_persona_id: activePersona?.id ?? null,
-    });
-
-    if (error) {
-      toast.error(error.message);
-      setCreating(false);
-      return;
-    }
-
-    const chatId = data as string | null;
-    if (!chatId) {
-      toast.error("Não foi possível criar o grupo.");
-      setCreating(false);
-      return;
-    }
-
-    // opcional: convidar resultados (você pode trocar por “selecionados” depois)
-    if (inviteResults.length > 0) {
-      setInviting(true);
-      const rows = inviteResults.map((p) => ({
-        chat_id: chatId,
-        user_id: p.id,
-      }));
-      const inviteRes = await supabase
-        .from("chat_participants")
-        .upsert(rows, { onConflict: "chat_id,user_id" });
-
-      if (inviteRes.error) {
-        toast.error(`Falha ao convidar: ${inviteRes.error.message}`);
+      if (error) {
+        toast.error(error.message);
+        return;
       }
-      setInviting(false);
+
+      const chatId = data as string | null;
+      if (!chatId) {
+        toast.error("Não foi possível criar o grupo.");
+        return;
+      }
+
+      // convidar (se houver resultados)
+      if (inviteResults.length > 0) {
+        setInviting(true);
+        const rows = inviteResults.map((p) => ({
+          chat_id: chatId,
+          user_id: p.id,
+        }));
+
+        const inviteRes = await supabase
+          .from("chat_participants")
+          .upsert(rows, { onConflict: "chat_id,user_id" });
+
+        if (inviteRes.error) {
+          toast.error(`Falha ao convidar: ${inviteRes.error.message}`);
+        }
+        setInviting(false);
+      }
+
+      toast.success("Grupo criado.");
+      setOpen(false);
+      setInviteQuery("");
+      setInviteResults([]);
+      setTitle("");
+
+      await loadChats();
+      router.push(`/app/chats/${chatId}`);
+    } finally {
+      setCreating(false);
     }
-
-    toast.success("Grupo criado.");
-    setOpen(false);
-    setInviteQuery("");
-    setInviteResults([]);
-    setTitle("");
-
-    await loadChats();
-    router.push(`/app/chats/${chatId}`);
-
-    setCreating(false);
   }
 
   async function createPublic() {
@@ -184,73 +196,73 @@ export default function ChatsPage() {
     if (!t) return toast.error("Dê um título para o chat público.");
 
     setCreating(true);
-    const { data, error } = await supabase.rpc("create_public_chat", {
-      p_title: t,
-    });
+    try {
+      // precisa existir no banco: RPC create_public_chat(p_title text)
+      const { data, error } = await supabase.rpc("create_public_chat", {
+        p_title: t,
+        p_default_persona_id: activePersona?.id ?? null,
+      });
 
-    if (error) {
-      toast.error(error.message.includes("create_public_chat") ? "Recurso de chat público indisponível no momento." : error.message);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      const chatId = data as string | null;
+      if (!chatId) {
+        toast.error("Chat público não foi criado.");
+        return;
+      }
+
+      toast.success("Chat público criado.");
+      setOpen(false);
+      setTitle("");
+
+      await loadChats();
+      router.push(`/app/chats/${chatId}`);
+    } finally {
       setCreating(false);
-      return;
     }
-
-    const chatId = data as string | null;
-    if (!chatId) {
-      toast.error("Chat público não foi criado.");
-      setCreating(false);
-      return;
-    }
-
-    toast.success("Chat público criado.");
-    setOpen(false);
-    setTitle("");
-    await loadChats();
-    router.push(`/app/chats/${chatId}`);
-    setCreating(false);
   }
 
   async function createDm() {
     if (!selectedUserId) return toast.error("Selecione um usuário.");
 
     setCreating(true);
+    try {
+      const { data, error } = await supabase.rpc("create_dm_chat", {
+        p_other_user_id: selectedUserId,
+        p_default_persona_id: activePersona?.id ?? null,
+      });
 
-    const { data, error } = await supabase.rpc("create_dm_chat", {
-      p_other_user_id: selectedUserId,
-      p_default_persona_id: activePersona?.id ?? null,
-    });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
 
-    if (error) {
-      toast.error(error.message);
+      const chatId = data as string | null;
+      if (!chatId) {
+        toast.error("Não foi possível criar DM.");
+        return;
+      }
+
+      toast.success("DM pronto.");
+      setOpen(false);
+      setSelectedUserId(null);
+      setUserQuery("");
+      setUsers([]);
+
+      await loadChats();
+      router.push(`/app/chats/${chatId}`);
+    } finally {
       setCreating(false);
-      return;
     }
-
-    const chatId = data as string | null;
-    if (!chatId) {
-      toast.error("Não foi possível criar DM.");
-      setCreating(false);
-      return;
-    }
-
-    toast.success("DM pronto.");
-    setOpen(false);
-    setSelectedUserId(null);
-    setUserQuery("");
-    setUsers([]);
-
-    await loadChats();
-    router.push(`/app/chats/${chatId}`);
-
-    setCreating(false);
   }
 
-  const canCreate = useMemo(
-    () =>
-      createType === "group" || createType === "public"
-        ? !!title.trim()
-        : !!selectedUserId,
-    [createType, selectedUserId, title],
-  );
+  const canCreate = useMemo(() => {
+    if (createType === "dm") return !!selectedUserId;
+    return !!title.trim();
+  }, [createType, selectedUserId, title]);
 
   const filteredChats = useMemo(() => {
     if (section === "dm") return myChats.filter((c) => c.type === "dm");
@@ -258,17 +270,23 @@ export default function ChatsPage() {
     return myChats.filter((c) => c.type === "public");
   }, [myChats, section]);
 
+  function handleCreateClick() {
+    if (createType === "public") return void createPublic();
+    if (createType === "group") return void createGroup();
+    return void createDm();
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Chats</h1>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-semibold">Chats</h1>
           <p className="text-sm text-muted-foreground">
             Públicos, grupos por convite e DMs 1:1.
           </p>
         </div>
 
-        <div className="flex w-full gap-2 sm:w-auto">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"
@@ -294,14 +312,33 @@ export default function ChatsPage() {
                   type="single"
                   value={createType}
                   onValueChange={(v) =>
-                    setCreateType((v as "group" | "dm") || "group")
+                    setCreateType((v as CreateType) || "public")
                   }
                 >
-                  <SegmentedItem value="group">Grupo</SegmentedItem>
-                  <SegmentedItem value="dm">DM</SegmentedItem>
+                  <SegmentedItem value="public">
+                    <span className="inline-flex items-center gap-2">
+                      <Globe className="h-4 w-4" /> Público
+                    </span>
+                  </SegmentedItem>
+                  <SegmentedItem value="group">
+                    <span className="inline-flex items-center gap-2">
+                      <UsersRound className="h-4 w-4" /> Grupo
+                    </span>
+                  </SegmentedItem>
+                  <SegmentedItem value="dm">
+                    <span className="inline-flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4" /> DM
+                    </span>
+                  </SegmentedItem>
                 </Segmented>
 
-                {createType === "group" ? (
+                {createType === "public" ? (
+                  <Input
+                    placeholder="Título do chat público"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                ) : createType === "group" ? (
                   <>
                     <Input
                       placeholder="Nome do grupo"
@@ -329,12 +366,6 @@ export default function ChatsPage() {
                       ))}
                     </div>
                   </>
-                ) : createType === "public" ? (
-                  <Input
-                    placeholder="Título do chat público"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
                 ) : (
                   <>
                     <Input
@@ -379,12 +410,17 @@ export default function ChatsPage() {
                 <Button
                   className="w-full rounded-2xl"
                   disabled={!canCreate || creating || inviting}
-                  onClick={() =>
-                    void (createType === "group" ? createGroup() : createDm())
-                  }
+                  onClick={handleCreateClick}
                 >
                   {creating ? "Criando..." : "Criar"}
                 </Button>
+
+                {createType !== "dm" && !activePersona ? (
+                  <p className="text-xs text-muted-foreground">
+                    Dica: selecione uma persona (seu layout já faz isso) para
+                    criar/entrar com identidade.
+                  </p>
+                ) : null}
               </div>
             </DialogContent>
           </Dialog>
@@ -396,9 +432,7 @@ export default function ChatsPage() {
           <Segmented
             type="single"
             value={section}
-            onValueChange={(v) =>
-              setSection((v as "public" | "group" | "dm") || "public")
-            }
+            onValueChange={(v) => setSection((v as Section) || "public")}
           >
             <SegmentedItem value="public">Públicos</SegmentedItem>
             <SegmentedItem value="group">Grupos</SegmentedItem>
