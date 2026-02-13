@@ -17,7 +17,7 @@ type UiMessage = {
   content: string;
   created_at: string;
   persona_id: string;
-  reply_to_id: string | null;
+  reply_to: string | null;
   persona: {
     id: string;
     name: string;
@@ -34,7 +34,6 @@ type MessageRow = {
   persona_id: string;
   content: string;
   created_at: string;
-  reply_to_id?: string | null;
   reply_to?: string | null;
   personas: {
     id: string;
@@ -104,7 +103,9 @@ export default function ChatRoomPage() {
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingStopTimeoutRef = useRef<number | null>(null);
-  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
+  );
 
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -127,7 +128,9 @@ export default function ChatRoomPage() {
 
   async function fetchProfilesMap(rows: MessageRow[]) {
     const userIds = Array.from(
-      new Set(rows.map((r) => r.personas.user_id).filter((x): x is string => !!x)),
+      new Set(
+        rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
+      ),
     );
     if (userIds.length === 0) return new Map<string, ProfileRow>();
     const profilesRes = await supabase
@@ -135,10 +138,15 @@ export default function ChatRoomPage() {
       .select("id,username,display_name,avatar_url")
       .in("id", userIds);
     if (profilesRes.error) return new Map<string, ProfileRow>();
-    return new Map((profilesRes.data ?? []).map((p) => [p.id, p as ProfileRow]));
+    return new Map(
+      (profilesRes.data ?? []).map((p) => [p.id, p as ProfileRow]),
+    );
   }
 
-  function mapRows(rows: MessageRow[], profileMap: Map<string, ProfileRow>): UiMessage[] {
+  function mapRows(
+    rows: MessageRow[],
+    profileMap: Map<string, ProfileRow>,
+  ): UiMessage[] {
     return rows.map((row) => {
       const uid = row.personas.user_id;
       const profile = uid ? profileMap.get(uid) : undefined;
@@ -147,7 +155,7 @@ export default function ChatRoomPage() {
         content: row.content,
         created_at: row.created_at,
         persona_id: row.persona_id,
-        reply_to_id: row.reply_to_id ?? row.reply_to ?? null,
+        reply_to: row.reply_to ?? row.reply_to ?? null,
         persona: {
           id: row.personas.id,
           name: row.personas.name,
@@ -174,7 +182,7 @@ export default function ChatRoomPage() {
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to_id,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", validChatId)
         .order("created_at", { ascending: false })
@@ -200,7 +208,14 @@ export default function ChatRoomPage() {
   }
 
   async function loadOlder() {
-    if (!chatId || !isUuid(chatId) || !hasMore || loadingMore || messages.length === 0) return;
+    if (
+      !chatId ||
+      !isUuid(chatId) ||
+      !hasMore ||
+      loadingMore ||
+      messages.length === 0
+    )
+      return;
 
     setLoadingMore(true);
     try {
@@ -212,7 +227,7 @@ export default function ChatRoomPage() {
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to_id,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", chatId)
         .lt("created_at", oldest.created_at)
@@ -252,7 +267,7 @@ export default function ChatRoomPage() {
     const res = await supabase
       .from("messages")
       .select(
-        "id,persona_id,content,created_at,reply_to_id,reply_to,personas!inner(id,user_id,name,avatar_url)",
+        "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
       )
       .eq("id", messageId)
       .maybeSingle();
@@ -275,7 +290,9 @@ export default function ChatRoomPage() {
       const fallbackPrefix = replyTo
         ? `<blockquote><small>Respondendo a ${DOMPurify.sanitize(replyTo.name)}: ${DOMPurify.sanitize(replyTo.preview)}</small></blockquote>`
         : "";
-      const contentToSend = hasReplyToIdColumn ? cleaned : `${fallbackPrefix}${cleaned}`;
+      const contentToSend = hasReplyToIdColumn
+        ? cleaned
+        : `${fallbackPrefix}${cleaned}`;
 
       let insertedId: string | null = null;
       if (hasReplyToIdColumn) {
@@ -285,7 +302,7 @@ export default function ChatRoomPage() {
             chat_id: chatId,
             persona_id: activePersona.id,
             content: contentToSend,
-            reply_to_id: replyTo?.id ?? null,
+            reply_to: replyTo?.id ?? null,
           })
           .select("id")
           .maybeSingle();
@@ -293,7 +310,7 @@ export default function ChatRoomPage() {
         if (withReplyRes.error) {
           const message = withReplyRes.error.message.toLowerCase();
           const missingReplyColumn =
-            message.includes("reply_to_id") &&
+            message.includes("reply_to") &&
             (message.includes("column") || message.includes("does not exist"));
           if (!missingReplyColumn) {
             toast.error(withReplyRes.error.message);
@@ -362,7 +379,8 @@ export default function ChatRoomPage() {
         },
         async (payload) => {
           const newRow = payload.new;
-          if (!newRow || typeof newRow !== "object" || !("id" in newRow)) return;
+          if (!newRow || typeof newRow !== "object" || !("id" in newRow))
+            return;
           const newIdRaw = newRow.id;
           const newId = typeof newIdRaw === "string" ? newIdRaw : null;
           if (!newId) return;
@@ -407,7 +425,9 @@ export default function ChatRoomPage() {
         const presence = typingChannel.presenceState<TypingPresence>();
         const names = Object.values(presence)
           .flatMap((entries) => entries)
-          .filter((entry) => entry.typing && entry.personaId !== activePersona.id)
+          .filter(
+            (entry) => entry.typing && entry.personaId !== activePersona.id,
+          )
           .map((entry) => entry.personaName)
           .slice(0, 2);
         setTypingUsers(Array.from(new Set(names)));
@@ -453,7 +473,10 @@ export default function ChatRoomPage() {
   }, [messages.length, hasMore, loadingMore]);
 
   const grouped = useMemo(() => {
-    const out: Array<{ kind: "day"; label: string } | { kind: "msg"; m: UiMessage; mine: boolean }> = [];
+    const out: Array<
+      | { kind: "day"; label: string }
+      | { kind: "msg"; m: UiMessage; mine: boolean }
+    > = [];
     let lastDay = "";
 
     for (const m of messages) {
@@ -493,7 +516,10 @@ export default function ChatRoomPage() {
         </div>
       </header>
 
-      <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8">
+      <div
+        ref={listRef}
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+      >
         {!chatId || !isUuid(chatId) ? (
           <p className="text-sm text-muted-foreground">Chat inválido.</p>
         ) : loading ? (
@@ -501,11 +527,17 @@ export default function ChatRoomPage() {
         ) : (
           <>
             {loadingMore ? (
-              <p className="text-center text-xs text-muted-foreground">Carregando mensagens antigas…</p>
+              <p className="text-center text-xs text-muted-foreground">
+                Carregando mensagens antigas…
+              </p>
             ) : hasMore ? (
-              <p className="text-center text-xs text-muted-foreground">Role para cima para carregar mais</p>
+              <p className="text-center text-xs text-muted-foreground">
+                Role para cima para carregar mais
+              </p>
             ) : (
-              <p className="text-center text-xs text-muted-foreground">Início do chat</p>
+              <p className="text-center text-xs text-muted-foreground">
+                Início do chat
+              </p>
             )}
 
             {pendingNewCount > 0 ? (
@@ -532,25 +564,37 @@ export default function ChatRoomPage() {
               }
 
               const safe = DOMPurify.sanitize(renderRichHtml(item.m.content));
-              const avatar = item.m.persona.user_avatar ?? item.m.persona.avatar_url ?? null;
+              const avatar =
+                item.m.persona.user_avatar ?? item.m.persona.avatar_url ?? null;
 
               return (
-                <div key={item.m.id} className={`flex ${item.mine ? "justify-end" : "justify-start"}`}>
+                <div
+                  key={item.m.id}
+                  className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
+                >
                   <div
                     className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}
                   >
                     <UserCardModal
                       user={{
                         username: item.m.persona.username,
-                        display_name: item.m.persona.display_name ?? item.m.persona.name,
+                        display_name:
+                          item.m.persona.display_name ?? item.m.persona.name,
                         avatar_url: avatar,
                       }}
                     >
-                      <button type="button" className="mb-2 flex items-center gap-2 text-left">
+                      <button
+                        type="button"
+                        className="mb-2 flex items-center gap-2 text-left"
+                      >
                         <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
                           {avatar ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={avatar} alt="avatar" className="h-full w-full object-cover" />
+                            <img
+                              src={avatar}
+                              alt="avatar"
+                              className="h-full w-full object-cover"
+                            />
                           ) : null}
                         </div>
                         <span className="text-xs font-semibold opacity-80">
@@ -566,8 +610,13 @@ export default function ChatRoomPage() {
                         onClick={() =>
                           setReplyTo({
                             id: item.m.id,
-                            name: item.m.persona.display_name ?? item.m.persona.name,
-                            preview: htmlToPlainText(item.m.content).slice(0, 80),
+                            name:
+                              item.m.persona.display_name ??
+                              item.m.persona.name,
+                            preview: htmlToPlainText(item.m.content).slice(
+                              0,
+                              80,
+                            ),
                           })
                         }
                       >
@@ -592,15 +641,20 @@ export default function ChatRoomPage() {
       <div className="border-t bg-background p-3 md:p-4">
         {typingUsers.length > 0 ? (
           <div className="mb-2 text-xs text-muted-foreground">
-            {typingUsers.join(", ")} {typingUsers.length === 1 ? "está digitando…" : "estão digitando…"}
+            {typingUsers.join(", ")}{" "}
+            {typingUsers.length === 1 ? "está digitando…" : "estão digitando…"}
           </div>
         ) : null}
 
         {replyTo ? (
           <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
             <div className="min-w-0">
-              <div className="text-xs font-semibold">Respondendo a {replyTo.name}</div>
-              <div className="truncate text-xs text-muted-foreground">{replyTo.preview}</div>
+              <div className="text-xs font-semibold">
+                Respondendo a {replyTo.name}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {replyTo.preview}
+              </div>
             </div>
             <Button
               size="icon"
@@ -652,7 +706,11 @@ export default function ChatRoomPage() {
         </div>
 
         <div className="mt-2 flex justify-end">
-          <Button className="rounded-2xl" onClick={() => void sendMessage()} disabled={!activePersona || sending}>
+          <Button
+            className="rounded-2xl"
+            onClick={() => void sendMessage()}
+            disabled={!activePersona || sending}
+          >
             {sending ? "Enviando..." : "Enviar"}
           </Button>
         </div>
