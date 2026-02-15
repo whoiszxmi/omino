@@ -103,7 +103,7 @@ export default function WikiViewPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
         <AppPageSkeleton compact />
       </div>
     );
@@ -111,8 +111,8 @@ export default function WikiViewPage() {
 
   if (!wiki) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <Card className="rounded-2xl">
+      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
+        <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Wiki não encontrada</CardTitle>
           </CardHeader>
@@ -132,12 +132,12 @@ export default function WikiViewPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
       {/* Top actions */}
       <header className="flex items-center justify-between gap-2">
         <Button
           variant="secondary"
-          className="rounded-2xl"
+          className="rounded-2xl shadow-sm"
           onClick={() => router.push("/app/wiki")}
         >
           Voltar
@@ -147,7 +147,7 @@ export default function WikiViewPage() {
           {wiki.category_id ? (
             <Button
               variant="secondary"
-              className="rounded-2xl"
+              className="rounded-2xl shadow-sm"
               onClick={() =>
                 router.push(`/app/wiki/categories/${wiki.category_id}`)
               }
@@ -159,7 +159,7 @@ export default function WikiViewPage() {
 
           {canEdit ? (
             <Button
-              className="rounded-2xl"
+              className="rounded-2xl shadow-sm"
               onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}
             >
               Editar
@@ -212,12 +212,12 @@ export default function WikiViewPage() {
       </div>
 
       {/* Content */}
-      <Card className="rounded-2xl">
+      <Card className="rounded-2xl shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Conteúdo</CardTitle>
         </CardHeader>
         <CardContent
-          className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
+          className="prose max-w-none text-base leading-7 overflow-x-auto break-words"
           dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       </Card>
