@@ -98,11 +98,18 @@ export function useActivePersona() {
   async function setActivePersona(personaId: string) {
     setState((s) => ({ ...s, error: null }));
 
+    if (!personaId) {
+      const message = "Persona inválida.";
+      setState((s) => ({ ...s, error: message }));
+      throw new Error(message);
+    }
+
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
     if (!user) {
-      setState((s) => ({ ...s, error: "Não logado." }));
-      return;
+      const message = "Não logado.";
+      setState((s) => ({ ...s, error: message }));
+      throw new Error(message);
     }
 
     const { error } = await supabase
@@ -112,7 +119,7 @@ export function useActivePersona() {
 
     if (error) {
       setState((s) => ({ ...s, error: error.message }));
-      return;
+      throw new Error(error.message);
     }
 
     await refresh();

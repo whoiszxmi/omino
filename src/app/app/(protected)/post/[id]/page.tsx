@@ -100,7 +100,7 @@ export default function PostViewPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
         <AppPageSkeleton compact />
       </div>
     );
@@ -108,8 +108,8 @@ export default function PostViewPage() {
 
   if (!post) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-        <Card className="rounded-2xl">
+      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
+        <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Post não encontrado</CardTitle>
           </CardHeader>
@@ -129,12 +129,12 @@ export default function PostViewPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
       {/* Top actions */}
       <header className="flex items-center justify-between gap-2">
         <Button
           variant="secondary"
-          className="rounded-2xl"
+          className="rounded-2xl shadow-sm"
           onClick={() => router.push("/app/feed")}
         >
           Voltar
@@ -142,14 +142,14 @@ export default function PostViewPage() {
 
         {canEdit ? (
           <div className="flex items-center gap-2">
-            <Button className="rounded-2xl" onClick={() => router.push(`/app/post/${post.id}/edit`)}>
+            <Button className="rounded-2xl shadow-sm" onClick={() => router.push(`/app/post/${post.id}/edit`)}>
               Editar
             </Button>
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="destructive" className="rounded-2xl">Excluir</Button>
+                <Button variant="destructive" className="rounded-2xl shadow-sm">Excluir</Button>
               </DialogTrigger>
-              <DialogContent className="rounded-2xl">
+              <DialogContent className="rounded-2xl shadow-sm">
                 <DialogHeader>
                   <DialogTitle>Excluir post</DialogTitle>
                   <DialogDescription>Essa ação não pode ser desfeita.</DialogDescription>
@@ -166,7 +166,7 @@ export default function PostViewPage() {
       </header>
 
       {/* Post card */}
-      <Card className="rounded-2xl">
+      <Card className="rounded-2xl shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -194,7 +194,7 @@ export default function PostViewPage() {
 
         <CardContent className="space-y-3">
           <div
-            className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
+            className="prose max-w-none text-base leading-7 overflow-x-auto break-words"
             dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
 
@@ -207,7 +207,7 @@ export default function PostViewPage() {
       </Card>
 
       {/* Comments */}
-      <Card className="rounded-2xl">
+      <Card className="rounded-2xl shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Comentários</CardTitle>
         </CardHeader>

@@ -407,8 +407,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                           activePersona?.id === p.id ? "secondary" : "default"
                         }
                         onClick={async () => {
-                          await setActivePersona(p.id);
-                          setPersonaDialogOpen(false);
+                          try {
+                            await setActivePersona(p.id);
+                            setPersonaDialogOpen(false);
+                            router.refresh();
+                          } catch {
+                            // estado de erro já é tratado no hook
+                          }
                         }}
                       >
                         {activePersona?.id === p.id ? "Ok" : "Usar"}

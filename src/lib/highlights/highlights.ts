@@ -20,6 +20,37 @@ type GetOpts = {
   limit?: number;
 };
 
+async function filterExistingTargets(items: Highlight[]) {
+  const postIds = items
+    .filter((item) => item.target_type === "post")
+    .map((item) => item.target_id);
+  const wikiIds = items
+    .filter((item) => item.target_type === "wiki")
+    .map((item) => item.target_id);
+
+  const [postsRes, wikiRes] = await Promise.all([
+    postIds.length
+      ? supabase.from("posts").select("id").in("id", postIds)
+      : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+    wikiIds.length
+      ? supabase.from("wiki_pages").select("id").in("id", wikiIds)
+      : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+  ]);
+
+  if (postsRes.error || wikiRes.error) {
+    return items;
+  }
+
+  const validPostIds = new Set((postsRes.data ?? []).map((row) => row.id));
+  const validWikiIds = new Set((wikiRes.data ?? []).map((row) => row.id));
+
+  return items.filter((item) =>
+    item.target_type === "post"
+      ? validPostIds.has(item.target_id)
+      : validWikiIds.has(item.target_id),
+  );
+}
+
 export async function getCommunityHighlights(opts: GetOpts = {}) {
   let q = supabase
     .from("highlights")
@@ -38,7 +69,7 @@ export async function getCommunityHighlights(opts: GetOpts = {}) {
     console.error("ERRO getCommunityHighlights:", error);
     return [];
   }
-  return (data ?? []) as Highlight[];
+  return filterExistingTargets((data ?? []) as Highlight[]);
 }
 
 export async function getMyHighlights(
@@ -69,7 +100,7 @@ export async function getMyHighlights(
     return [];
   }
 
-  return (data ?? []) as Highlight[];
+  return filterExistingTargets((data ?? []) as Highlight[]);
 }
 
 export async function isHighlighted(

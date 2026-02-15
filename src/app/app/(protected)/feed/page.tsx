@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { parseDocContent } from "@/lib/content/docMeta";
+import { FileText } from "lucide-react";
 
 // Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
 // (ex: "@/components/feed/PostComments")
@@ -20,18 +22,28 @@ import {
   type HighlightTargetType,
 } from "@/lib/highlights/highlights";
 
-import { renderRichHtml } from "@/lib/render/richText";
-
 type Post = {
   id: string;
   content: string;
   created_at: string;
+  title: string;
+  excerpt: string;
+  coverColor: string;
   persona: {
     id: string;
     name: string;
     avatar_url?: string | null;
   };
 };
+
+function toExcerpt(html: string) {
+  const plain = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= 220) return plain;
+  return `${plain.slice(0, 220).trim()}...`;
+}
 
 export default function FeedPage() {
   const { activePersona } = useActivePersona();
@@ -76,16 +88,23 @@ export default function FeedPage() {
       return;
     }
 
-    const mapped: Post[] = (data ?? []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      created_at: row.created_at,
-      persona: {
-        id: row.persona_id,
-        name: row.personas?.name ?? "Desconhecido",
-        avatar_url: row.personas?.avatar_url ?? null,
-      },
-    }));
+    const mapped: Post[] = (data ?? []).map((row: any) => {
+      const parsed = parseDocContent(row.content ?? "");
+      const derivedTitle = parsed.title?.trim() || "Sem título";
+      return {
+        id: row.id,
+        content: row.content,
+        created_at: row.created_at,
+        title: derivedTitle,
+        excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
+        coverColor: parsed.backgroundColor,
+        persona: {
+          id: row.persona_id,
+          name: row.personas?.name ?? "Desconhecido",
+          avatar_url: row.personas?.avatar_url ?? null,
+        },
+      };
+    });
 
     for (const p of mapped) {
       personaCache.current[p.persona.id] = {
@@ -168,8 +187,8 @@ export default function FeedPage() {
       : highlights.filter((item) => item.target_type === highlightFilter);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col gap-4 p-4 md:p-6">
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold">Feed</h1>
           <p className="truncate text-xs text-muted-foreground">
@@ -177,10 +196,10 @@ export default function FeedPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => (location.href = "/app/drafts")}
           >
             Rascunhos
@@ -188,7 +207,7 @@ export default function FeedPage() {
 
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => {
               loadPosts();
               loadHighlights();
@@ -198,7 +217,7 @@ export default function FeedPage() {
           </Button>
 
           <Button
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => (location.href = "/app/feed/new")}
             disabled={!activePersona}
           >
@@ -310,35 +329,43 @@ export default function FeedPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
           {posts.map((p) => (
             <Card
               key={p.id}
-              className="cursor-pointer rounded-2xl"
+              className="cursor-pointer rounded-2xl shadow-sm"
               onClick={() => (location.href = `/app/post/${p.id}`)}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{p.persona.name}</CardTitle>
+              <CardHeader className="space-y-2 pb-2">
+                <CardTitle className="line-clamp-2 text-base">{p.title}</CardTitle>
+                <div className="text-xs text-muted-foreground">
+                  por @{p.persona.name}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {new Date(p.created_at).toLocaleString("pt-BR")}
                 </div>
               </CardHeader>
 
               <CardContent className="space-y-3">
-                <div
-                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                  dangerouslySetInnerHTML={{
-                    __html: renderRichHtml(p.content),
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div className="relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
+                  <div
+                    className="h-full w-full"
+                    style={{ backgroundColor: p.coverColor || "#f8fafc" }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <FileText className="h-8 w-8 text-muted-foreground/70" />
+                  </div>
+                </div>
+
+                <p className="line-clamp-4 text-sm text-muted-foreground">{p.excerpt || "Sem prévia disponível."}</p>
+                <p className="text-sm font-medium text-primary">Ler mais</p>
 
                 {/* ✅ Botões de destaque (não deve navegar ao clicar) */}
                 <div onClick={(e) => e.stopPropagation()}>
                   <HighlightButtonGroup
                     targetType="post"
                     targetId={p.id}
-                    title={`Post de ${p.persona.name}`}
+                    title={p.title}
                   />
                 </div>
 

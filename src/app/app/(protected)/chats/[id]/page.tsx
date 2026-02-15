@@ -56,10 +56,17 @@ type ReplyDraft = {
   preview: string;
 };
 
+type ReplyLookup = {
+  id: string;
+  author: string;
+  preview: string;
+};
+
 type TypingPresence = {
   typing: boolean;
   personaId: string;
   personaName: string;
+  ts: number;
 };
 
 function isUuid(v: string) {
@@ -100,12 +107,20 @@ export default function ChatRoomPage() {
   const [pendingNewCount, setPendingNewCount] = useState(0);
 
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  const [replyLookup, setReplyLookup] = useState<Record<string, ReplyLookup>>(
+    {},
+  );
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    string | null
+  >(null);
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingStopTimeoutRef = useRef<number | null>(null);
+  const typingTrackThrottleRef = useRef<number>(0);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
     null,
   );
+  const didInitialScrollRef = useRef(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -117,6 +132,16 @@ export default function ChatRoomPage() {
     el.scrollTo({ top: next, behavior: smooth ? "smooth" : "auto" });
     setPendingNewCount(0);
     bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function performInitialScroll() {
+    if (didInitialScrollRef.current) return;
+    didInitialScrollRef.current = true;
+    requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        scrollToBottom(false);
+      }, 30);
+    });
   }
 
   function isNearBottom() {
@@ -155,7 +180,7 @@ export default function ChatRoomPage() {
         content: row.content,
         created_at: row.created_at,
         persona_id: row.persona_id,
-        reply_to: row.reply_to ?? row.reply_to ?? null,
+        reply_to: row.reply_to ?? null,
         persona: {
           id: row.personas.id,
           name: row.personas.name,
@@ -179,10 +204,11 @@ export default function ChatRoomPage() {
         .maybeSingle();
       if (chatRes.data?.title) setChatTitle(chatRes.data.title);
 
+      didInitialScrollRef.current = false;
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", validChatId)
         .order("created_at", { ascending: false })
@@ -200,8 +226,9 @@ export default function ChatRoomPage() {
       const mapped = mapRows(rows, profileMap).reverse();
 
       setMessages(mapped);
+      setReplyLookup({});
       setHasMore(rows.length === PAGE_SIZE);
-      setTimeout(() => scrollToBottom(false), 0);
+      performInitialScroll();
     } finally {
       setLoading(false);
     }
@@ -227,7 +254,7 @@ export default function ChatRoomPage() {
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", chatId)
         .lt("created_at", oldest.created_at)
@@ -267,7 +294,7 @@ export default function ChatRoomPage() {
     const res = await supabase
       .from("messages")
       .select(
-        "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+        "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
       )
       .eq("id", messageId)
       .maybeSingle();
@@ -277,6 +304,51 @@ export default function ChatRoomPage() {
     const row = res.data as unknown as MessageRow;
     const profileMap = await fetchProfilesMap([row]);
     return mapRows([row], profileMap)[0] ?? null;
+  }
+
+  function jumpToMessage(messageId: string) {
+    const container = listRef.current;
+    if (!container) return;
+    const target = container.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMessageId((curr) => (curr === messageId ? null : curr));
+    }, 1500);
+  }
+
+  async function resolveReplyMessage(replyId: string) {
+    const existing = messages.find((m) => m.id === replyId);
+    if (existing) {
+      const author = existing.persona.display_name ?? existing.persona.name;
+      const preview = htmlToPlainText(existing.content).slice(0, 100);
+      setReplyLookup((prev) => ({
+        ...prev,
+        [replyId]: { id: replyId, author, preview },
+      }));
+      jumpToMessage(replyId);
+      return;
+    }
+
+    if (replyLookup[replyId]) {
+      toast.message("Mensagem original não está carregada na conversa.");
+      return;
+    }
+
+    const fetched = await fetchOneMessage(replyId);
+    if (!fetched) {
+      toast.error("Não foi possível carregar a mensagem original.");
+      return;
+    }
+
+    const author = fetched.persona.display_name ?? fetched.persona.name;
+    const preview = htmlToPlainText(fetched.content).slice(0, 100);
+    setReplyLookup((prev) => ({
+      ...prev,
+      [replyId]: { id: replyId, author, preview },
+    }));
+    toast.message("Mensagem original carregada. Abra mensagens anteriores para localizar.");
   }
 
   async function sendMessage() {
@@ -347,6 +419,7 @@ export default function ChatRoomPage() {
           typing: false,
           personaId: activePersona.id,
           personaName: activePersona.name,
+          ts: Date.now(),
         } satisfies TypingPresence);
       }
 
@@ -415,40 +488,53 @@ export default function ChatRoomPage() {
   useEffect(() => {
     if (!chatId || !isUuid(chatId) || !activePersona) return;
 
-    const typingChannel = supabase.channel(`typing-${chatId}`, {
+    const typingChannel = supabase.channel(`presence-chat-${chatId}`, {
       config: { presence: { key: activePersona.id } },
     });
     typingChannelRef.current = typingChannel;
 
+    const recalcTypingUsers = () => {
+      const presence = typingChannel.presenceState<TypingPresence>();
+      const names = Object.values(presence)
+        .flatMap((entries) => entries)
+        .filter(
+          (entry) =>
+            entry.typing &&
+            entry.personaId !== activePersona.id &&
+            Date.now() - Number(entry.ts ?? 0) < 3000,
+        )
+        .map((entry) => entry.personaName)
+        .slice(0, 2);
+      setTypingUsers(Array.from(new Set(names)));
+    };
+
     typingChannel
-      .on("presence", { event: "sync" }, () => {
-        const presence = typingChannel.presenceState<TypingPresence>();
-        const names = Object.values(presence)
-          .flatMap((entries) => entries)
-          .filter(
-            (entry) => entry.typing && entry.personaId !== activePersona.id,
-          )
-          .map((entry) => entry.personaName)
-          .slice(0, 2);
-        setTypingUsers(Array.from(new Set(names)));
-      })
+      .on("presence", { event: "sync" }, recalcTypingUsers)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           void typingChannel.track({
             typing: false,
             personaId: activePersona.id,
             personaName: activePersona.name,
+            ts: Date.now(),
           } satisfies TypingPresence);
+          recalcTypingUsers();
         }
       });
+
+    const typingRefreshTimer = window.setInterval(() => {
+      recalcTypingUsers();
+    }, 1000);
 
     return () => {
       if (typingStopTimeoutRef.current) {
         window.clearTimeout(typingStopTimeoutRef.current);
       }
+      window.clearInterval(typingRefreshTimer);
       void typingChannel.untrack();
       supabase.removeChannel(typingChannel);
       typingChannelRef.current = null;
+      setTypingUsers([]);
     };
   }, [chatId, activePersona]);
 
@@ -457,11 +543,6 @@ export default function ChatRoomPage() {
     if (!el) return;
 
     function onScroll() {
-      const currentEl = listRef.current;
-      if (!currentEl) return;
-      if (currentEl.scrollTop < 180) {
-        void loadOlder();
-      }
       if (isNearBottom()) {
         setPendingNewCount(0);
       }
@@ -469,8 +550,7 @@ export default function ChatRoomPage() {
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, hasMore, loadingMore]);
+  }, []);
 
   const grouped = useMemo(() => {
     const out: Array<
@@ -492,7 +572,7 @@ export default function ChatRoomPage() {
   }, [messages, activePersona?.id]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3 md:px-6">
           <Button
@@ -526,17 +606,22 @@ export default function ChatRoomPage() {
           <p className="text-sm text-muted-foreground">Carregando...</p>
         ) : (
           <>
-            {loadingMore ? (
-              <p className="text-center text-xs text-muted-foreground">
-                Carregando mensagens antigas…
-              </p>
-            ) : hasMore ? (
-              <p className="text-center text-xs text-muted-foreground">
-                Role para cima para carregar mais
-              </p>
+            {hasMore ? (
+              <div className="flex justify-center">
+                <Button
+                  variant="secondary"
+                  className="rounded-2xl"
+                  onClick={() => void loadOlder()}
+                  disabled={loadingMore}
+                >
+                  {loadingMore
+                    ? "Carregando mensagens antigas..."
+                    : "Carregar mensagens anteriores"}
+                </Button>
+              </div>
             ) : (
               <p className="text-center text-xs text-muted-foreground">
-                Início do chat
+                Você chegou no começo
               </p>
             )}
 
@@ -570,10 +655,13 @@ export default function ChatRoomPage() {
               return (
                 <div
                   key={item.m.id}
+                  data-message-id={item.m.id}
                   className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${
+                      item.mine ? "bg-primary text-primary-foreground" : "bg-muted"
+                    } ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
                   >
                     <UserCardModal
                       user={{
@@ -624,6 +712,23 @@ export default function ChatRoomPage() {
                       </button>
                     </div>
 
+                    {item.m.reply_to ? (
+                      <button
+                        type="button"
+                        className="mb-2 block w-full rounded-xl border border-border/70 bg-background/60 px-2 py-1 text-left text-xs text-muted-foreground"
+                        onClick={() => void resolveReplyMessage(item.m.reply_to as string)}
+                      >
+                        {replyLookup[item.m.reply_to] ? (
+                          <>
+                            Resposta a @{replyLookup[item.m.reply_to].author}: {" "}
+                            {replyLookup[item.m.reply_to].preview}
+                          </>
+                        ) : (
+                          "Resposta a uma mensagem (toque para carregar)"
+                        )}
+                      </button>
+                    ) : null}
+
                     <div
                       className="prose max-w-none break-words text-sm"
                       dangerouslySetInnerHTML={{ __html: safe }}
@@ -673,11 +778,15 @@ export default function ChatRoomPage() {
             onChangeHtml={(v) => {
               setInputHtml(v);
               if (!activePersona || !typingChannelRef.current) return;
-              void typingChannelRef.current.track({
-                typing: true,
-                personaId: activePersona.id,
-                personaName: activePersona.name,
-              } satisfies TypingPresence);
+              if (Date.now() - typingTrackThrottleRef.current > 800) {
+                typingTrackThrottleRef.current = Date.now();
+                void typingChannelRef.current.track({
+                  typing: true,
+                  personaId: activePersona.id,
+                  personaName: activePersona.name,
+                  ts: Date.now(),
+                } satisfies TypingPresence);
+              }
 
               if (typingStopTimeoutRef.current) {
                 window.clearTimeout(typingStopTimeoutRef.current);
@@ -688,6 +797,7 @@ export default function ChatRoomPage() {
                   typing: false,
                   personaId: activePersona.id,
                   personaName: activePersona.name,
+                  ts: Date.now(),
                 } satisfies TypingPresence);
               }, 800);
             }}

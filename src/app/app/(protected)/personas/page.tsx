@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +21,8 @@ type Persona = {
 };
 
 export default function PersonasPage() {
+  const router = useRouter();
+  const { setActivePersona } = useActivePersona();
   const [loading, setLoading] = useState(true);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -97,19 +101,16 @@ export default function PersonasPage() {
   async function setDefault(personaId: string) {
     setErrorMsg(null);
 
-    // Você já criou a função SQL set_default_persona (como combinamos)
-    const { error } = await supabase.rpc("set_default_persona", {
-      p_persona_id: personaId,
-    });
-
-    if (error) {
-      setErrorMsg(error.message);
-      toast.error(error.message);
-      return;
+    try {
+      await setActivePersona(personaId);
+      toast.success("Persona ativa atualizada.");
+      await loadPersonas();
+      router.refresh();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Erro ao trocar persona.";
+      setErrorMsg(msg);
+      toast.error(msg);
     }
-
-    toast.message("Persona definida como default.");
-    await loadPersonas();
   }
 
   async function removePersona(personaId: string) {
@@ -136,7 +137,7 @@ export default function PersonasPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <main className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col gap-4 p-4 md:p-6">
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle className="text-base">Persona default</CardTitle>
@@ -207,7 +208,7 @@ export default function PersonasPage() {
                   )}
                 </div>
 
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
                   {!p.is_default && (
                     <Button
                       size="sm"
@@ -217,6 +218,13 @@ export default function PersonasPage() {
                       Usar
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => router.push(`/app/personas/${p.id}/edit`)}
+                  >
+                    Editar
+                  </Button>
                   <Button
                     size="sm"
                     variant="destructive"
