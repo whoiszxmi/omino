@@ -561,6 +561,18 @@ export default function ChatRoomPage() {
   }, [chatId]);
 
 
+  // garante foco na mensagem mais recente ao abrir no desktop/mobile
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+
+    const t1 = window.setTimeout(() => scrollToBottom(false), 0);
+    const t2 = window.setTimeout(() => scrollToBottom(false), 140);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [loading, chatId]);
+
   // presença typing
   useEffect(() => {
     if (!chatId || !isUuid(chatId) || !activePersona) return;

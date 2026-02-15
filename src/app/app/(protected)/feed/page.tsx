@@ -37,7 +37,6 @@ type Post = {
   };
 };
 
-
 function toExcerpt(html: string) {
   const plain = html
     .replace(/<[^>]*>/g, " ")
@@ -149,66 +148,6 @@ export default function FeedPage() {
   }
 
 
-  async function normalizeHighlights(items: Highlight[]): Promise<NormalizedHighlight[]> {
-    const wikiIds = items
-      .filter((item) => item.target_type === "wiki" && !item.title?.trim())
-      .map((item) => item.target_id);
-    const postIds = items
-      .filter((item) => item.target_type === "post" && !item.title?.trim())
-      .map((item) => item.target_id);
-
-    let wikiTitleMap = new Map<string, string>();
-    let postTitleMap = new Map<string, string>();
-
-    if (wikiIds.length > 0) {
-      const { data } = await supabase
-        .from("wiki_pages")
-        .select("id,title")
-        .in("id", wikiIds);
-      wikiTitleMap = new Map(
-        (data ?? []).map((row: any) => [String(row.id), (row.title as string) ?? ""]),
-      );
-    }
-
-    if (postIds.length > 0) {
-      const postRes = await safeSelect({
-        missingColumn: "wallpaper_id",
-        // fallback para ambientes sem colunas novas no posts
-        primary: () =>
-          supabase.from("posts").select("id,content,wallpaper_id").in("id", postIds),
-        fallback: () =>
-          supabase.from("posts").select("id,content").in("id", postIds),
-      });
-
-      postTitleMap = new Map(
-        ((postRes.data ?? []) as Array<{ id: string; content?: string | null }>).map((row) => {
-          const parsed = parseDocContent(row.content ?? "");
-          return [row.id, parsed.title?.trim() || ""];
-        }),
-      );
-    }
-
-    return items.map((item) => {
-      const original = item.title?.trim();
-      if (original) return { ...item, title: original };
-
-      if (item.target_type === "wiki") {
-        const realTitle = wikiTitleMap.get(item.target_id)?.trim();
-        if (!realTitle) {
-          return { ...item, title: "Wiki removida", isRemoved: true };
-        }
-        return { ...item, title: realTitle };
-      }
-
-      const postTitle = postTitleMap.get(item.target_id)?.trim();
-      if (!postTitle) {
-        return { ...item, title: "Post removido", isRemoved: true };
-      }
-      return { ...item, title: postTitle };
-    });
-  }
-
-
   async function loadHighlights() {
     setHighlightsLoading(true);
 
@@ -222,7 +161,62 @@ export default function FeedPage() {
 
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
-    const normalized = await normalizeHighlights(limited);
+
+    const wikiIds = limited
+      .filter((item) => item.target_type === "wiki")
+      .map((item) => item.target_id);
+    const missingPostIds = limited
+      .filter((item) => item.target_type === "post" && !item.title)
+      .map((item) => item.target_id);
+
+    let wikiTitles = new Map<string, string>();
+    let postTitles = new Map<string, string>();
+
+    if (wikiIds.length > 0) {
+      const { data: wikiData, error: wikiErr } = await supabase
+        .from("wiki_pages")
+        .select("id, title")
+        .in("id", wikiIds);
+
+      if (wikiErr) console.error("ERRO loadHighlights (wiki titles):", wikiErr);
+
+      wikiTitles = new Map(
+        (wikiData ?? []).map((row: any) => [
+          row.id as string,
+          (row.title as string) ?? "Wiki",
+        ]),
+      );
+    }
+
+    if (missingPostIds.length > 0) {
+      const { data: postData, error: postErr } = await supabase
+        .from("posts")
+        .select("id, content")
+        .in("id", missingPostIds);
+
+      if (postErr) console.error("ERRO loadHighlights (post titles):", postErr);
+
+      postTitles = new Map(
+        (postData ?? []).map((row: any) => {
+          const parsed = parseDocContent((row.content as string) ?? "");
+          return [row.id as string, parsed.title?.trim() || "Post"];
+        }),
+      );
+    }
+
+    const normalized: Highlight[] = limited.map((item) => {
+      if (item.target_type === "wiki") {
+        return {
+          ...item,
+          title: wikiTitles.get(item.target_id) || item.title?.trim() || "Wiki",
+        };
+      }
+
+      return {
+        ...item,
+        title: item.title?.trim() || postTitles.get(item.target_id) || "Post",
+      };
+    });
 
     setHighlights(normalized);
     setHighlightsLoading(false);

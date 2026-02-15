@@ -216,7 +216,7 @@ export default function ProfilePage() {
             ...item,
             title:
               postTitles.get(item.target_id) ||
-              (item.title && !/^post\s+de[:\s]/i.test(item.title)
+              (item.title && !item.title.toLowerCase().startsWith("post de")
                 ? item.title.trim()
                 : "Post"),
           }
