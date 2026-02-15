@@ -20,12 +20,14 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 
 type PostRow = {
   id: string;
   content: string;
   created_at: string;
   persona_id: string;
+  wallpaper_id?: string | null;
   personas?: { id: string; name: string; avatar_url: string | null } | null;
 };
 
@@ -44,6 +46,7 @@ export default function PostEditPage() {
   const [backgroundColor, setBackgroundColor] = useState<string>(
     DEFAULT_DOC_BACKGROUND,
   );
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
 
   const canEdit = useMemo(
     () => !!post && !!activePersona && post.persona_id === activePersona.id,
@@ -77,7 +80,7 @@ export default function PostEditPage() {
       setLoading(true);
       const { data, error } = await supabase
         .from("posts")
-        .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+        .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
         .eq("id", postId)
         .maybeSingle();
 
@@ -100,6 +103,7 @@ export default function PostEditPage() {
       setTitle(parsed.title);
       setContentHtml(parsed.bodyHtml);
       setBackgroundColor(parsed.backgroundColor);
+      setWallpaperId(row.wallpaper_id ?? null);
       setLoading(false);
     }
 
@@ -126,7 +130,7 @@ export default function PostEditPage() {
     try {
       const { error } = await supabase
         .from("posts")
-        .update({ content: payload })
+        .update({ content: payload, wallpaper_id: wallpaperId })
         .eq("id", post.id);
       if (error) throw error;
 
@@ -238,6 +242,8 @@ export default function PostEditPage() {
             value={backgroundColor}
             onChange={setBackgroundColor}
           />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper do post" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor

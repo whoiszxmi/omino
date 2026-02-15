@@ -16,6 +16,7 @@ import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 
 type WikiRow = {
   id: string;
@@ -24,6 +25,7 @@ type WikiRow = {
   cover_url: string | null;
   category_id: string | null;
   created_by_persona_id: string;
+  wallpaper_id?: string | null;
 };
 
 export default function WikiEditPage() {
@@ -40,6 +42,7 @@ export default function WikiEditPage() {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,7 +72,7 @@ export default function WikiEditPage() {
       const [wikiRes, categoriesRes] = await Promise.all([
         supabase
           .from("wiki_pages")
-          .select("id,title,content_html,cover_url,category_id,created_by_persona_id")
+          .select("id,title,content_html,cover_url,category_id,created_by_persona_id,wallpaper_id")
           .eq("id", wikiId)
           .maybeSingle(),
         supabase.from("wiki_categories").select("id,name").order("name", { ascending: true }),
@@ -84,6 +87,7 @@ export default function WikiEditPage() {
         setBackgroundColor(parsed.backgroundColor);
         setCoverUrl(row.cover_url ?? null);
         setCategoryId(row.category_id ?? null);
+        setWallpaperId(row.wallpaper_id ?? null);
       }
 
       setCategories((categoriesRes.data ?? []) as Array<{ id: string; name: string }>);
@@ -124,6 +128,7 @@ export default function WikiEditPage() {
         content_html: contentWithBg,
         cover_url: coverUrl,
         category_id: categoryId,
+        wallpaper_id: wallpaperId,
       })
       .eq("id", wiki.id);
     setSaving(false);
@@ -181,6 +186,8 @@ export default function WikiEditPage() {
           </select>
 
           <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper da wiki" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite o conteúdo..." folder="wikis" imageInsertMode="both" enableTables />

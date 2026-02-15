@@ -14,6 +14,7 @@ import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 
 export default function NewPostPage() {
   const { activePersona } = useActivePersona();
@@ -21,6 +22,7 @@ export default function NewPostPage() {
   const [title, setTitle] = useState("");
   const [contentHtml, setContentHtml] = useState("");
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const initialDraft = useMemo(
@@ -68,6 +70,7 @@ export default function NewPostPage() {
     const { error } = await supabase.from("posts").insert({
       persona_id: activePersona.id,
       content: payload,
+      wallpaper_id: wallpaperId,
     });
 
     setSaving(false);
@@ -109,6 +112,8 @@ export default function NewPostPage() {
           />
 
           <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper do post" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor

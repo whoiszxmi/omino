@@ -9,12 +9,14 @@ import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 
 export default function NewPublicChatPage() {
   const router = useRouter();
   const { activePersona } = useActivePersona();
   const [title, setTitle] = useState("");
   const [creating, setCreating] = useState(false);
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
 
   async function createPublicChat() {
     const trimmed = title.trim();
@@ -41,7 +43,7 @@ export default function NewPublicChatPage() {
 
     const { data: chat, error: chatError } = await supabase
       .from("chats")
-      .insert({ title: trimmed, type: "public" })
+      .insert({ title: trimmed, type: "public", wallpaper_id: wallpaperId })
       .select("id")
       .single();
 
@@ -81,6 +83,8 @@ export default function NewPublicChatPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper do chat" />
 
           <Button
             className="w-full rounded-2xl"
