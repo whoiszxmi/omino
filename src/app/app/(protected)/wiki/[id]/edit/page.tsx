@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,6 +126,12 @@ export default function WikiEditPage() {
       bodyHtml: sanitized,
       backgroundColor,
     });
+    const uiThemePayload = {
+      background: wallpaperId
+        ? { kind: "wallpaper", value: wallpaperId }
+        : { kind: "solid", value: backgroundColor },
+      foreground: "auto",
+    };
     if (!title.trim()) return toast.error("Título é obrigatório.");
     if (isRichHtmlEmpty(sanitized)) return toast.error("Conteúdo obrigatório.");
 
@@ -137,8 +144,22 @@ export default function WikiEditPage() {
         cover_url: coverUrl,
         category_id: categoryId,
         wallpaper_id: wallpaperId,
+        ui_theme: uiThemePayload,
       })
       .eq("id", wiki.id);
+
+    if (isMissingColumnError(updateRes.error, "ui_theme")) {
+      updateRes = await supabase
+        .from("wiki_pages")
+        .update({
+          title: title.trim(),
+          content_html: contentWithBg,
+          cover_url: coverUrl,
+          category_id: categoryId,
+          wallpaper_id: wallpaperId,
+        })
+        .eq("id", wiki.id);
+    }
 
     if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
       updateRes = await supabase

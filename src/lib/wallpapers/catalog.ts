@@ -9,7 +9,7 @@ export type Wallpaper = {
   recommendedText?: "light" | "dark";
 };
 
-export const WALLPAPER_CATALOG: Wallpaper[] = [
+export const WALLPAPERS: Wallpaper[] = [
   {
     id: "royalGrid",
     name: "Royal Grid",
@@ -86,5 +86,10 @@ export const WALLPAPER_CATALOG: Wallpaper[] = [
 
 export function getWallpaperById(wallpaperId?: string | null) {
   if (!wallpaperId) return null;
-  return WALLPAPER_CATALOG.find((item) => item.id === wallpaperId) ?? null;
+  return WALLPAPERS.find((item) => item.id === wallpaperId) ?? null;
 }
+
+
+// aliases para compatibilidade
+export const WALLPAPER_CATALOG = WALLPAPERS;
+export const getWallpaper = getWallpaperById;

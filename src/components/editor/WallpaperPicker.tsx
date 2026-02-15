@@ -2,7 +2,7 @@
 
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { Button } from "@/components/ui/button";
-import { WALLPAPER_CATALOG } from "@/lib/wallpapers/catalog";
+import { WALLPAPERS } from "@/lib/wallpapers/catalog";
 import { cn } from "@/lib/utils";
 
 type WallpaperPickerProps = {
@@ -34,7 +34,7 @@ export default function WallpaperPicker({
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {WALLPAPER_CATALOG.map((wallpaper) => {
+        {WALLPAPERS.map((wallpaper) => {
           const selected = value === wallpaper.id;
           return (
             <button

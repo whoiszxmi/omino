@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { renderRichHtml } from "@/lib/render/richText";
+import { parseDocContent } from "@/lib/content/docMeta";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { getMyHighlights, type Highlight } from "@/lib/highlights/highlights";
 import ProfileWikisGrid from "@/components/profile/ProfileWikisGrid";
@@ -188,8 +189,41 @@ export default function ProfilePage() {
 
     // highlights
     setHighlightsLoading(true);
-    const Highlights = await getMyHighlights("profile");
-    setHighlights(Highlights);
+    const highlightsData = await getMyHighlights("profile");
+
+    const postIds = highlightsData
+      .filter((item) => item.target_type === "post")
+      .map((item) => item.target_id);
+    let postTitles = new Map<string, string>();
+
+    if (postIds.length > 0) {
+      const { data: postRows } = await supabase
+        .from("posts")
+        .select("id,content")
+        .in("id", postIds);
+
+      postTitles = new Map(
+        (postRows ?? []).map((row: any) => {
+          const parsed = parseDocContent((row.content as string) ?? "");
+          return [row.id as string, parsed.title?.trim() || "Post"];
+        }),
+      );
+    }
+
+    const normalizedHighlights = highlightsData.map((item) =>
+      item.target_type === "post"
+        ? {
+            ...item,
+            title:
+              postTitles.get(item.target_id) ||
+              (item.title && !/^post\s+de[:\s]/i.test(item.title)
+                ? item.title.trim()
+                : "Post"),
+          }
+        : item,
+    );
+
+    setHighlights(normalizedHighlights);
     setHighlightsLoading(false);
 
     setLoading(false);
@@ -504,7 +538,7 @@ export default function ProfilePage() {
                         <HighlightButtonGroup
                           targetType="post"
                           targetId={p.id}
-                          title={`Post de ${p.personas?.name ?? "Persona"}`}
+                          title={parseDocContent(p.content ?? "").title?.trim() || "Post"}
                           onToggle={handleHighlightToggle}
                         />
                       </div>
