@@ -130,15 +130,15 @@ export default function WikiViewPage() {
           </div>
         </header>
 
-        <div className="overflow-hidden rounded-2xl border bg-background/80">
+        <div className="overflow-hidden rounded-2xl border border-white/20 bg-transparent backdrop-blur-[1px]">
           <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="relative h-48 md:h-72 w-full">
             {wiki.cover_url ? <img src={wiki.cover_url} alt={wiki.title} className="h-full w-full object-cover" /> : null}
           </WallpaperBackground>
 
           <div className="p-4 md:p-6">
-            <div className="text-xs text-muted-foreground">{wiki.wiki_categories?.name ? `Pasta: ${wiki.wiki_categories.name}` : "Sem pasta"}</div>
+            <div className={`text-xs ${darkMode ? "text-white/75" : "text-muted-foreground"}`}>{wiki.wiki_categories?.name ? `Pasta: ${wiki.wiki_categories.name}` : "Sem pasta"}</div>
             <h1 className="mt-1 text-2xl md:text-4xl font-semibold leading-snug">{wiki.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs md:text-sm text-muted-foreground">
+            <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs md:text-sm ${darkMode ? "text-white/80" : "text-muted-foreground"}`}>
               <span>Atualizado em {new Date(wiki.updated_at).toLocaleString("pt-BR")}</span>
               <span>•</span>
               <span>Por {wiki.personas?.name ?? "Persona"}</span>
@@ -147,8 +147,8 @@ export default function WikiViewPage() {
           </div>
         </div>
 
-        <Card className="rounded-2xl shadow-sm bg-background/85">
-          <CardHeader className="pb-2"><CardTitle className="text-base">Conteúdo</CardTitle></CardHeader>
+        <Card className="rounded-2xl border-white/20 shadow-sm bg-transparent backdrop-blur-[1px]">
+          <CardHeader className="pb-2"><CardTitle className={`text-base ${darkMode ? "text-white" : ""}`}>Conteúdo</CardTitle></CardHeader>
           <CardContent
             className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
             dangerouslySetInnerHTML={{ __html: safeHtml }}

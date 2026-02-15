@@ -137,13 +137,25 @@ export default function PostEditPage() {
       bodyHtml: sanitized,
       backgroundColor,
     });
+    const uiThemePayload = {
+      background: wallpaperId
+        ? { kind: "wallpaper", value: wallpaperId }
+        : { kind: "solid", value: backgroundColor },
+      foreground: "auto",
+    };
 
     setSaving(true);
     try {
       let updateRes = await supabase
         .from("posts")
-        .update({ content: payload, wallpaper_id: wallpaperId })
+        .update({ content: payload, wallpaper_id: wallpaperId, ui_theme: uiThemePayload })
         .eq("id", post.id);
+      if (isMissingColumnError(updateRes.error, "ui_theme")) {
+        updateRes = await supabase
+          .from("posts")
+          .update({ content: payload, wallpaper_id: wallpaperId })
+          .eq("id", post.id);
+      }
       if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
         updateRes = await supabase
           .from("posts")

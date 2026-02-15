@@ -84,6 +84,12 @@ export default function NewPostPage() {
         bodyHtml: html,
         backgroundColor,
       });
+      const uiThemePayload = {
+        background: wallpaperId
+          ? { kind: "wallpaper", value: wallpaperId }
+          : { kind: "solid", value: backgroundColor },
+        foreground: "auto",
+      };
 
       // ✅ tenta com colunas novas; se o banco não tiver, cai em fallback
       let res = await supabase
@@ -93,7 +99,7 @@ export default function NewPostPage() {
           content: payload,
           wallpaper_id: wallpaperId,
           // se seu schema já tiver ui_theme, ótimo; se não tiver, faremos fallback
-          ui_theme: backgroundColor,
+          ui_theme: uiThemePayload,
         } as any)
         .select("id")
         .maybeSingle();
@@ -105,7 +111,7 @@ export default function NewPostPage() {
           .insert({
             persona_id: activePersona.id,
             content: payload,
-            ui_theme: backgroundColor,
+            ui_theme: uiThemePayload,
           } as any)
           .select("id")
           .maybeSingle();
