@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,12 @@ export default function NewWikiPage() {
       bodyHtml: sanitized,
       backgroundColor,
     });
+    const uiThemePayload = {
+      background: wallpaperId
+        ? { kind: "wallpaper", value: wallpaperId }
+        : { kind: "solid", value: backgroundColor },
+      foreground: "auto",
+    };
 
     if (!activePersona) return toast.error("Selecione uma persona.");
     if (!title.trim()) return toast.error("Título é obrigatório.");
@@ -134,9 +141,25 @@ export default function NewWikiPage() {
         cover_url: coverUrl,
         content_html: contentWithBg,
         wallpaper_id: wallpaperId,
+        ui_theme: uiThemePayload,
       })
       .select("id")
       .single();
+
+    if (isMissingColumnError(createRes.error, "ui_theme")) {
+      createRes = await supabase
+        .from("wiki_pages")
+        .insert({
+          created_by_persona_id: activePersona.id,
+          category_id: categoryId,
+          title: title.trim(),
+          cover_url: coverUrl,
+          content_html: contentWithBg,
+          wallpaper_id: wallpaperId,
+        })
+        .select("id")
+        .single();
+    }
 
     if (isMissingColumnError(createRes.error, "wallpaper_id")) {
       createRes = await supabase
