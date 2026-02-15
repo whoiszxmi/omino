@@ -9,14 +9,11 @@ import { parseDocContent } from "@/lib/content/docMeta";
 import { FileText } from "lucide-react";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
-// Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
-// (ex: "@/components/feed/PostComments")
+// ⚠️ ajuste se necessário
 import PostComments from "@/app/app/(protected)/feed/PostComments";
 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-
 import {
   getCommunityHighlights,
   type Highlight,
@@ -37,6 +34,19 @@ type Post = {
     avatar_url?: string | null;
   };
 };
+
+// ✅ resolve “missing column” do PostgREST (42703)
+function isMissingColumnError(err: unknown, column: string) {
+  if (!err || typeof err !== "object") return false;
+  const anyErr = err as any;
+  const code = String(anyErr.code ?? "");
+  const message = String(anyErr.message ?? "").toLowerCase();
+  const details = String(anyErr.details ?? "").toLowerCase();
+  const col = column.toLowerCase();
+
+  const mentions = message.includes(col) || details.includes(col);
+  return code === "42703" || (mentions && message.includes("does not exist"));
+}
 
 function toExcerpt(html: string) {
   const plain = html
@@ -67,52 +77,57 @@ export default function FeedPage() {
   async function loadPosts() {
     setLoading(true);
 
-    let query: any = await supabase
+    // tenta com wallpaper_id; se o banco não tiver, faz fallback
+    let res = await supabase
       .from("posts")
       .select(
         `
+        id,
+        content,
+        created_at,
+        persona_id,
+        wallpaper_id,
+        personas:personas (
           id,
-          content,
-          created_at,
-          persona_id,
-          wallpaper_id,
-          personas (
-            name,
-            avatar_url
-          )
-        `,
+          name,
+          avatar_url
+        )
+      `,
       )
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (isMissingColumnError(query.error, "wallpaper_id")) {
-      query = await supabase
+    if (res.error && isMissingColumnError(res.error, "wallpaper_id")) {
+      res = await supabase
         .from("posts")
         .select(
           `
+          id,
+          content,
+          created_at,
+          persona_id,
+          personas:personas (
             id,
-            content,
-            created_at,
-            persona_id,
-            personas (
-              name,
-              avatar_url
-            )
-          `,
+            name,
+            avatar_url
+          )
+        `,
         )
         .order("created_at", { ascending: false })
         .limit(50);
     }
 
-    if (query.error) {
-      console.error("ERRO loadPosts:", query.error);
+    if (res.error) {
+      console.error("ERRO loadPosts:", res.error);
+      setPosts([]);
       setLoading(false);
       return;
     }
 
-    const mapped: Post[] = (query.data ?? []).map((row: any) => {
+    const mapped: Post[] = (res.data ?? []).map((row: any) => {
       const parsed = parseDocContent(row.content ?? "");
       const derivedTitle = parsed.title?.trim() || "Sem título";
+
       return {
         id: row.id,
         content: row.content,
@@ -154,7 +169,6 @@ export default function FeedPage() {
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
 
-    // buscar títulos faltantes de wiki (se você salva title no highlight, isso quase não roda)
     const missingWikiIds = limited
       .filter((item) => item.target_type === "wiki" && !item.title)
       .map((item) => item.target_id);
@@ -162,15 +176,12 @@ export default function FeedPage() {
     let wikiTitles = new Map<string, string>();
 
     if (missingWikiIds.length > 0) {
-      // ⚠️ Ajuste o nome da tabela se no seu projeto for "wikis" ou outra.
       const { data: wikiData, error: wikiErr } = await supabase
         .from("wiki_pages")
         .select("id, title")
         .in("id", missingWikiIds);
 
-      if (wikiErr) {
-        console.error("ERRO loadHighlights (wiki titles):", wikiErr);
-      }
+      if (wikiErr) console.error("ERRO loadHighlights (wiki titles):", wikiErr);
 
       wikiTitles = new Map(
         (wikiData ?? []).map((row: any) => [
@@ -182,15 +193,9 @@ export default function FeedPage() {
 
     const normalized: Highlight[] = limited.map((item) => {
       if (item.title) return item;
-
       if (item.target_type === "wiki") {
-        return {
-          ...item,
-          title: wikiTitles.get(item.target_id) ?? "Wiki",
-        };
+        return { ...item, title: wikiTitles.get(item.target_id) ?? "Wiki" };
       }
-
-      // post sem título
       return { ...item, title: "Post" };
     });
 
@@ -199,8 +204,8 @@ export default function FeedPage() {
   }
 
   useEffect(() => {
-    loadPosts();
-    loadHighlights();
+    void loadPosts();
+    void loadHighlights();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -232,8 +237,8 @@ export default function FeedPage() {
             variant="secondary"
             className="w-full rounded-2xl sm:w-auto"
             onClick={() => {
-              loadPosts();
-              loadHighlights();
+              void loadPosts();
+              void loadHighlights();
             }}
           >
             Atualizar
@@ -243,6 +248,7 @@ export default function FeedPage() {
             className="w-full rounded-2xl sm:w-auto"
             onClick={() => (location.href = "/app/feed/new")}
             disabled={!activePersona}
+            title={!activePersona ? "Selecione uma persona" : "Novo post"}
           >
             Novo
           </Button>
@@ -318,7 +324,11 @@ export default function FeedPage() {
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <WallpaperBackground wallpaperId={isWiki ? "frostBlue" : "royalGrid"} fallback="#dbeafe" className="h-full w-full" />
+                            <WallpaperBackground
+                              wallpaperId={isWiki ? "frostBlue" : "royalGrid"}
+                              fallback="#dbeafe"
+                              className="h-full w-full"
+                            />
                           )}
                         </div>
 
@@ -362,7 +372,9 @@ export default function FeedPage() {
               onClick={() => (location.href = `/app/post/${p.id}`)}
             >
               <CardHeader className="space-y-2 pb-2">
-                <CardTitle className="line-clamp-2 text-base">{p.title}</CardTitle>
+                <CardTitle className="line-clamp-2 text-base">
+                  {p.title}
+                </CardTitle>
                 <div className="text-xs text-muted-foreground">
                   por @{p.persona.name}
                 </div>
@@ -373,13 +385,19 @@ export default function FeedPage() {
 
               <CardContent className="space-y-3">
                 <div className="relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
-                  <WallpaperBackground wallpaperId={p.wallpaperId} fallback={p.coverColor || "#f8fafc"} className="h-full w-full" />
+                  <WallpaperBackground
+                    wallpaperId={p.wallpaperId}
+                    fallback={p.coverColor || "#f8fafc"}
+                    className="h-full w-full"
+                  />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <FileText className="h-8 w-8 text-muted-foreground/70" />
                   </div>
                 </div>
 
-                <p className="line-clamp-4 text-sm text-muted-foreground">{p.excerpt || "Sem prévia disponível."}</p>
+                <p className="line-clamp-4 text-sm text-muted-foreground">
+                  {p.excerpt || "Sem prévia disponível."}
+                </p>
                 <p className="text-sm font-medium text-primary">Ler mais</p>
 
                 {/* ✅ Botões de destaque (não deve navegar ao clicar) */}
