@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { FileText } from "lucide-react";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 // ⚠️ ajuste se necessário
 import PostComments from "@/app/app/(protected)/feed/PostComments";
@@ -18,6 +19,7 @@ import {
   getCommunityHighlights,
   type Highlight,
   type HighlightTargetType,
+  type NormalizedHighlight,
 } from "@/lib/highlights/highlights";
 
 type Post = {
@@ -35,18 +37,6 @@ type Post = {
   };
 };
 
-// ✅ resolve “missing column” do PostgREST (42703)
-function isMissingColumnError(err: unknown, column: string) {
-  if (!err || typeof err !== "object") return false;
-  const anyErr = err as any;
-  const code = String(anyErr.code ?? "");
-  const message = String(anyErr.message ?? "").toLowerCase();
-  const details = String(anyErr.details ?? "").toLowerCase();
-  const col = column.toLowerCase();
-
-  const mentions = message.includes(col) || details.includes(col);
-  return code === "42703" || (mentions && message.includes("does not exist"));
-}
 
 function toExcerpt(html: string) {
   const plain = html
@@ -64,7 +54,7 @@ export default function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   const [highlightsLoading, setHighlightsLoading] = useState(true);
-  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [highlights, setHighlights] = useState<NormalizedHighlight[]>([]);
   const [highlightFilter, setHighlightFilter] = useState<
     "all" | HighlightTargetType
   >("all");
@@ -75,60 +65,58 @@ export default function FeedPage() {
   >({});
 
   async function loadPosts() {
-  setLoading(true);
+    setLoading(true);
 
-  // tenta com wallpaper_id
-  const resWithWallpaper = await supabase
-    .from("posts")
-    .select(
-      `
-        id,
-        content,
-        created_at,
-        persona_id,
-        wallpaper_id,
-        personas:personas (
-          id,
-          name,
-          avatar_url
-        )
-      `,
-    )
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  // fallback sem wallpaper_id (se a coluna não existir)
-  const resNoWallpaper = resWithWallpaper.error &&
-    isMissingColumnError(resWithWallpaper.error, "wallpaper_id")
-    ? await supabase
-        .from("posts")
-        .select(
-          `
-            id,
-            content,
-            created_at,
-            persona_id,
-            personas:personas (
+    const res = await safeSelect({
+      missingColumn: "wallpaper_id",
+      // fallback para ambientes sem wallpaper_id
+      primary: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
               id,
-              name,
-              avatar_url
-            )
-          `,
-        )
-        .order("created_at", { ascending: false })
-        .limit(50)
-    : null;
+              content,
+              created_at,
+              persona_id,
+              wallpaper_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+      fallback: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
+              id,
+              content,
+              created_at,
+              persona_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+    });
 
-  const res = resNoWallpaper ?? resWithWallpaper;
+    if (res.error) {
+      console.error("ERRO loadPosts:", res.error);
+      setPosts([]);
+      setLoading(false);
+      return;
+    }
 
-  if (res.error) {
-    console.error("ERRO loadPosts:", res.error);
-    setPosts([]);
-    setLoading(false);
-    return;
-  }
-
-  const mapped: Post[] = (res.data ?? []).map((row: any) => {
+    const mapped: Post[] = (res.data ?? []).map((row: any) => {
     const parsed = parseDocContent(row.content ?? "");
     const derivedTitle = parsed.title?.trim() || "Sem título";
 
@@ -149,16 +137,76 @@ export default function FeedPage() {
     };
   });
 
-  for (const p of mapped) {
-    personaCache.current[p.persona.id] = {
-      name: p.persona.name,
-      avatar_url: p.persona.avatar_url ?? null,
-    };
+    for (const p of mapped) {
+      personaCache.current[p.persona.id] = {
+        name: p.persona.name,
+        avatar_url: p.persona.avatar_url ?? null,
+      };
+    }
+
+    setPosts(mapped);
+    setLoading(false);
   }
 
-  setPosts(mapped);
-  setLoading(false);
-}
+
+  async function normalizeHighlights(items: Highlight[]): Promise<NormalizedHighlight[]> {
+    const wikiIds = items
+      .filter((item) => item.target_type === "wiki" && !item.title?.trim())
+      .map((item) => item.target_id);
+    const postIds = items
+      .filter((item) => item.target_type === "post" && !item.title?.trim())
+      .map((item) => item.target_id);
+
+    let wikiTitleMap = new Map<string, string>();
+    let postTitleMap = new Map<string, string>();
+
+    if (wikiIds.length > 0) {
+      const { data } = await supabase
+        .from("wiki_pages")
+        .select("id,title")
+        .in("id", wikiIds);
+      wikiTitleMap = new Map(
+        (data ?? []).map((row: any) => [String(row.id), (row.title as string) ?? ""]),
+      );
+    }
+
+    if (postIds.length > 0) {
+      const postRes = await safeSelect({
+        missingColumn: "wallpaper_id",
+        // fallback para ambientes sem colunas novas no posts
+        primary: () =>
+          supabase.from("posts").select("id,content,wallpaper_id").in("id", postIds),
+        fallback: () =>
+          supabase.from("posts").select("id,content").in("id", postIds),
+      });
+
+      postTitleMap = new Map(
+        ((postRes.data ?? []) as Array<{ id: string; content?: string | null }>).map((row) => {
+          const parsed = parseDocContent(row.content ?? "");
+          return [row.id, parsed.title?.trim() || ""];
+        }),
+      );
+    }
+
+    return items.map<NormalizedHighlight>((item) => {
+      const original = item.title?.trim();
+      if (original) return { ...item, title: original };
+
+      if (item.target_type === "wiki") {
+        const realTitle = wikiTitleMap.get(item.target_id)?.trim();
+        if (!realTitle) {
+          return { ...item, title: "Wiki removida", isRemoved: true };
+        }
+        return { ...item, title: realTitle };
+      }
+
+      const postTitle = postTitleMap.get(item.target_id)?.trim();
+      if (!postTitle) {
+        return { ...item, title: "Post removido", isRemoved: true };
+      }
+      return { ...item, title: postTitle };
+    });
+  }
 
 
   async function loadHighlights() {
@@ -174,36 +222,7 @@ export default function FeedPage() {
 
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
-
-    const missingWikiIds = limited
-      .filter((item) => item.target_type === "wiki" && !item.title)
-      .map((item) => item.target_id);
-
-    let wikiTitles = new Map<string, string>();
-
-    if (missingWikiIds.length > 0) {
-      const { data: wikiData, error: wikiErr } = await supabase
-        .from("wiki_pages")
-        .select("id, title")
-        .in("id", missingWikiIds);
-
-      if (wikiErr) console.error("ERRO loadHighlights (wiki titles):", wikiErr);
-
-      wikiTitles = new Map(
-        (wikiData ?? []).map((row: any) => [
-          row.id as string,
-          (row.title as string) ?? "Wiki",
-        ]),
-      );
-    }
-
-    const normalized: Highlight[] = limited.map((item) => {
-      if (item.title) return item;
-      if (item.target_type === "wiki") {
-        return { ...item, title: wikiTitles.get(item.target_id) ?? "Wiki" };
-      }
-      return { ...item, title: "Post" };
-    });
+    const normalized: NormalizedHighlight[] = await normalizeHighlights(limited);
 
     setHighlights(normalized);
     setHighlightsLoading(false);
@@ -307,14 +326,16 @@ export default function FeedPage() {
               <div className="grid grid-cols-2 gap-3">
                 {filteredHighlights.map((item) => {
                   const isWiki = item.target_type === "wiki";
-                  const title = item.title ?? (isWiki ? "Wiki" : "Post");
+                  const title = item.title;
+                  const disabled = !!item.isRemoved;
 
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                      className={`aspect-square overflow-hidden rounded-2xl border text-left transition ${disabled ? "cursor-not-allowed opacity-75" : "hover:bg-muted/30"}`}
                       onClick={() => {
+                        if (disabled) return;
                         location.href = isWiki
                           ? `/app/wiki/${item.target_id}`
                           : `/app/post/${item.target_id}`;
@@ -340,7 +361,7 @@ export default function FeedPage() {
 
                         <div className="space-y-2 p-3">
                           <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                            {isWiki ? "Wiki" : "Post"}
+                            {item.isRemoved ? "Removido" : isWiki ? "Wiki" : "Post"}
                           </span>
 
                           <div className="truncate text-sm font-medium">

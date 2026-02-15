@@ -1,13 +1,13 @@
 import { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { getWallpaperById } from "@/lib/wallpapers/catalog";
+import { getWallpaper } from "@/lib/wallpapers/catalog";
 
 function toSvgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 export function getWallpaperStyle(wallpaperId?: string | null): CSSProperties | null {
-  const wallpaper = getWallpaperById(wallpaperId);
+  const wallpaper = getWallpaper(wallpaperId);
   if (!wallpaper) return null;
 
   if (wallpaper.kind === "css" && wallpaper.css) {

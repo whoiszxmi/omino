@@ -155,8 +155,7 @@ export default function ChatRoomPage() {
     didInitialScrollRef.current = true;
 
     requestAnimationFrame(() => {
-      // pequeno delay pra garantir render + alturas calculadas
-      window.setTimeout(() => scrollToBottom(false), 30);
+      requestAnimationFrame(() => scrollToBottom(false));
     });
   }
 
@@ -561,6 +560,7 @@ export default function ChatRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId]);
 
+
   // presença typing
   useEffect(() => {
     if (!chatId || !isUuid(chatId) || !activePersona) return;
@@ -672,7 +672,7 @@ export default function ChatRoomPage() {
 
         <div
           ref={listRef}
-          className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+          className="flex-1 min-h-0 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
         >
           {!chatId || !isUuid(chatId) ? (
             <p className="text-sm text-muted-foreground">Chat inválido.</p>
