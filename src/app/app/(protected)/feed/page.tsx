@@ -164,8 +164,8 @@ export default function FeedPage() {
     const wikiIds = limited
       .filter((item) => item.target_type === "wiki")
       .map((item) => item.target_id);
-    const postIds = limited
-      .filter((item) => item.target_type === "post")
+    const missingPostIds = limited
+      .filter((item) => item.target_type === "post" && !item.title)
       .map((item) => item.target_id);
 
     let wikiTitles = new Map<string, string>();
@@ -187,11 +187,11 @@ export default function FeedPage() {
       );
     }
 
-    if (postIds.length > 0) {
+    if (missingPostIds.length > 0) {
       const { data: postData, error: postErr } = await supabase
         .from("posts")
         .select("id, content")
-        .in("id", postIds);
+        .in("id", missingPostIds);
 
       if (postErr) console.error("ERRO loadHighlights (post titles):", postErr);
 
@@ -213,11 +213,7 @@ export default function FeedPage() {
 
       return {
         ...item,
-        title:
-          postTitles.get(item.target_id) ||
-          (item.title && !item.title.toLowerCase().startsWith("post de")
-            ? item.title.trim()
-            : "Post"),
+        title: item.title?.trim() || postTitles.get(item.target_id) || "Post",
       };
     });
 
