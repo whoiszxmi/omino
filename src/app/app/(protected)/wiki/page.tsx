@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { safeSelect } from "@/lib/supabase/fallback";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
 type Category = {
@@ -31,6 +32,7 @@ type Wiki = {
 
 const FILTER_ALL = "all";
 const FILTER_NONE = "none";
+const WIKI_PAGE_SIZE = 18;
 
 export default function WikiHomePage() {
   const router = useRouter();
@@ -44,6 +46,35 @@ export default function WikiHomePage() {
   const [searchDebounced, setSearchDebounced] = useState("");
 
   const [catFilter, setCatFilter] = useState<string>(FILTER_ALL);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreWikis, setHasMoreWikis] = useState(true);
+
+  async function fetchWikiPage(cursor?: string) {
+    return safeSelect({
+      missingColumn: "wallpaper_id",
+      // fallback para schemas sem wallpaper_id
+      primary: () => {
+        let query = supabase
+          .from("wiki_pages")
+          .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
+          .order("updated_at", { ascending: false })
+          .limit(WIKI_PAGE_SIZE);
+
+        if (cursor) query = query.lt("updated_at", cursor);
+        return query;
+      },
+      fallback: () => {
+        let query = supabase
+          .from("wiki_pages")
+          .select("id,title,cover_url,category_id,created_at,updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(WIKI_PAGE_SIZE);
+
+        if (cursor) query = query.lt("updated_at", cursor);
+        return query;
+      },
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -53,19 +84,7 @@ export default function WikiHomePage() {
       .select("id,name,parent_id,created_at")
       .order("name", { ascending: true });
 
-    let wikiRes: any = await supabase
-      .from("wiki_pages")
-      .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
-      .order("updated_at", { ascending: false })
-      .limit(80);
-
-    if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
-      wikiRes = await supabase
-        .from("wiki_pages")
-        .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
-        .order("updated_at", { ascending: false })
-        .limit(80);
-    }
+    const wikiRes = await fetchWikiPage();
 
     if (catRes.error) {
       console.error("ERRO load categories:", catRes.error);
@@ -81,9 +100,30 @@ export default function WikiHomePage() {
       return;
     }
 
+    const page = (wikiRes.data ?? []) as Wiki[];
     setCats((catRes.data ?? []) as Category[]);
-    setWikis((wikiRes.data ?? []) as Wiki[]);
+    setWikis(page);
+    setHasMoreWikis(page.length === WIKI_PAGE_SIZE);
     setLoading(false);
+  }
+
+  async function loadMoreWikis() {
+    if (loadingMore || !hasMoreWikis || wikis.length === 0) return;
+
+    setLoadingMore(true);
+    const lastUpdatedAt = wikis[wikis.length - 1]?.updated_at;
+    const wikiRes = await fetchWikiPage(lastUpdatedAt);
+
+    if (wikiRes.error) {
+      toast.error(wikiRes.error.message);
+      setLoadingMore(false);
+      return;
+    }
+
+    const page = (wikiRes.data ?? []) as Wiki[];
+    setWikis((prev) => [...prev, ...page]);
+    setHasMoreWikis(page.length === WIKI_PAGE_SIZE);
+    setLoadingMore(false);
   }
 
   useEffect(() => {
@@ -305,7 +345,7 @@ export default function WikiHomePage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {filteredWikis.slice(0, 18).map((w) => (
+              {filteredWikis.map((w) => (
                 <button
                   key={w.id}
                   type="button"
@@ -345,13 +385,20 @@ export default function WikiHomePage() {
 
           {!loading && (
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button
-                variant="secondary"
-                className="w-full rounded-2xl"
-                onClick={() => router.push("/app/wiki")}
-              >
-                Ver mais
-              </Button>
+              {hasMoreWikis ? (
+                <Button
+                  variant="secondary"
+                  className="w-full rounded-2xl"
+                  onClick={() => void loadMoreWikis()}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? "Carregando..." : "Ver mais"}
+                </Button>
+              ) : (
+                <div className="flex h-10 items-center justify-center rounded-2xl border text-sm text-muted-foreground">
+                  Você chegou ao fim
+                </div>
+              )}
               <Button
                 className="w-full rounded-2xl"
                 disabled={!activePersona}

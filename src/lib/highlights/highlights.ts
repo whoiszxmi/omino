@@ -15,6 +15,12 @@ export type Highlight = {
   created_at: string;
 };
 
+
+export type NormalizedHighlight = Highlight & {
+  title: string;
+  isRemoved?: boolean;
+};
+
 type GetOpts = {
   type?: HighlightTargetType;
   limit?: number;
@@ -69,7 +75,8 @@ export async function getCommunityHighlights(opts: GetOpts = {}) {
     console.error("ERRO getCommunityHighlights:", error);
     return [];
   }
-  return filterExistingTargets((data ?? []) as Highlight[]);
+  // manter itens órfãos para UI sinalizar como removido quando necessário
+  return (data ?? []) as Highlight[];
 }
 
 export async function getMyHighlights(
@@ -100,7 +107,8 @@ export async function getMyHighlights(
     return [];
   }
 
-  return filterExistingTargets((data ?? []) as Highlight[]);
+  // manter itens órfãos para UI sinalizar como removido quando necessário
+  return (data ?? []) as Highlight[];
 }
 
 export async function isHighlighted(
