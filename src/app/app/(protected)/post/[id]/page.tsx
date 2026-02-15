@@ -101,6 +101,7 @@ export default function PostViewPage() {
 
   const parsed = useMemo(() => parseDocContent(post?.content ?? ""), [post?.content]);
   const safeHtml = useMemo(() => renderRichHtml(post?.content ?? ""), [post?.content]);
+  const postTitle = parsed.title?.trim() || "Post";
   const tone = resolveForegroundTheme({
     wallpaperId: post?.wallpaper_id,
     backgroundColor: parsed.backgroundColor,
@@ -155,14 +156,14 @@ export default function PostViewPage() {
           ) : null}
         </header>
 
-        <Card className="rounded-2xl shadow-sm bg-background/85">
+        <Card className="rounded-2xl border-white/20 shadow-sm bg-transparent backdrop-blur-[1px]">
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <CardTitle className="text-xl md:text-3xl">{parsed.title || "Sem título"}</CardTitle>
-                <div className="text-xs md:text-sm text-muted-foreground">{new Date(post.created_at).toLocaleString("pt-BR")}</div>
+                <div className={`text-xs md:text-sm ${darkMode ? "text-white/80" : "text-muted-foreground"}`}>{new Date(post.created_at).toLocaleString("pt-BR")}</div>
               </div>
-              <div className="h-10 w-10 overflow-hidden rounded-xl border bg-background">
+              <div className="h-10 w-10 overflow-hidden rounded-xl border border-white/25 bg-black/10">
                 {post.personas?.avatar_url ? <img src={post.personas.avatar_url} alt="avatar" className="h-full w-full object-cover" /> : null}
               </div>
             </div>
@@ -174,12 +175,12 @@ export default function PostViewPage() {
               dangerouslySetInnerHTML={{ __html: safeHtml }}
             />
 
-            <HighlightButtonGroup targetType="post" targetId={post.id} title={`Post de ${post.personas?.name ?? "Persona"}`} />
+            <HighlightButtonGroup targetType="post" targetId={post.id} title={postTitle} />
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-sm bg-background/85">
-          <CardHeader className="pb-2"><CardTitle className="text-base">Comentários</CardTitle></CardHeader>
+        <Card className="rounded-2xl border-white/20 shadow-sm bg-transparent backdrop-blur-[1px]">
+          <CardHeader className="pb-2"><CardTitle className={`text-base ${darkMode ? "text-white" : ""}`}>Comentários</CardTitle></CardHeader>
           <CardContent><PostComments postId={post.id} /></CardContent>
         </Card>
       </div>
