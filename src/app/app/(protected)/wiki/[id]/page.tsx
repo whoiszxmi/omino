@@ -13,6 +13,7 @@ import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 type WikiRow = {
   id: string;
@@ -51,14 +52,25 @@ export default function WikiViewPage() {
   async function load() {
     setLoading(true);
 
-    let query: any = await supabase
-      .from("wiki_pages")
-      .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,ui_theme,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
-      .eq("id", wikiId)
-      .maybeSingle();
+    const query = await safeSelect({
+      missingColumn: "ui_theme",
+      // fallback para schemas que ainda não têm ui_theme
+      primary: () =>
+        supabase
+          .from("wiki_pages")
+          .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,ui_theme,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
+          .eq("id", wikiId)
+          .maybeSingle(),
+      fallback: () =>
+        supabase
+          .from("wiki_pages")
+          .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
+          .eq("id", wikiId)
+          .maybeSingle(),
+    });
 
-    if (error) {
-      toast.error(error.message);
+    if (query.error) {
+      toast.error(query.error.message);
       setWiki(null);
       setLoading(false);
       return;
@@ -70,7 +82,7 @@ export default function WikiViewPage() {
       return;
     }
 
-    setWiki(data as unknown as WikiRow);
+    setWiki(query.data as unknown as WikiRow);
     setLoading(false);
   }
 
