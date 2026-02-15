@@ -21,6 +21,8 @@ import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 type PostRow = {
   id: string;
@@ -78,19 +80,21 @@ export default function PostEditPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      let query: any = await supabase
-        .from("posts")
-        .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
-        .eq("id", postId)
-        .maybeSingle();
-
-      if (isMissingColumnError(query.error, "wallpaper_id")) {
-        query = await supabase
-          .from("posts")
-          .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
-          .eq("id", postId)
-          .maybeSingle();
-      }
+      const query = await safeSelect({
+        missingColumn: "wallpaper_id",
+        primary: () =>
+          supabase
+            .from("posts")
+            .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
+            .eq("id", postId)
+            .maybeSingle(),
+        fallback: () =>
+          supabase
+            .from("posts")
+            .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+            .eq("id", postId)
+            .maybeSingle(),
+      });
 
       if (query.error) {
         toast.error(query.error.message);
