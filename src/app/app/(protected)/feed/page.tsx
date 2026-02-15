@@ -75,13 +75,13 @@ export default function FeedPage() {
   >({});
 
   async function loadPosts() {
-    setLoading(true);
+  setLoading(true);
 
-    // tenta com wallpaper_id; se o banco não tiver, faz fallback
-    let res = await supabase
-      .from("posts")
-      .select(
-        `
+  // tenta com wallpaper_id
+  const resWithWallpaper = await supabase
+    .from("posts")
+    .select(
+      `
         id,
         content,
         created_at,
@@ -93,67 +93,73 @@ export default function FeedPage() {
           avatar_url
         )
       `,
-      )
-      .order("created_at", { ascending: false })
-      .limit(50);
+    )
+    .order("created_at", { ascending: false })
+    .limit(50);
 
-    if (res.error && isMissingColumnError(res.error, "wallpaper_id")) {
-      res = await supabase
+  // fallback sem wallpaper_id (se a coluna não existir)
+  const resNoWallpaper = resWithWallpaper.error &&
+    isMissingColumnError(resWithWallpaper.error, "wallpaper_id")
+    ? await supabase
         .from("posts")
         .select(
           `
-          id,
-          content,
-          created_at,
-          persona_id,
-          personas:personas (
             id,
-            name,
-            avatar_url
-          )
-        `,
+            content,
+            created_at,
+            persona_id,
+            personas:personas (
+              id,
+              name,
+              avatar_url
+            )
+          `,
         )
         .order("created_at", { ascending: false })
-        .limit(50);
-    }
+        .limit(50)
+    : null;
 
-    if (res.error) {
-      console.error("ERRO loadPosts:", res.error);
-      setPosts([]);
-      setLoading(false);
-      return;
-    }
+  const res = resNoWallpaper ?? resWithWallpaper;
 
-    const mapped: Post[] = (res.data ?? []).map((row: any) => {
-      const parsed = parseDocContent(row.content ?? "");
-      const derivedTitle = parsed.title?.trim() || "Sem título";
-
-      return {
-        id: row.id,
-        content: row.content,
-        created_at: row.created_at,
-        title: derivedTitle,
-        excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
-        coverColor: parsed.backgroundColor,
-        wallpaperId: row.wallpaper_id ?? null,
-        persona: {
-          id: row.persona_id,
-          name: row.personas?.name ?? "Desconhecido",
-          avatar_url: row.personas?.avatar_url ?? null,
-        },
-      };
-    });
-
-    for (const p of mapped) {
-      personaCache.current[p.persona.id] = {
-        name: p.persona.name,
-        avatar_url: p.persona.avatar_url ?? null,
-      };
-    }
-
-    setPosts(mapped);
+  if (res.error) {
+    console.error("ERRO loadPosts:", res.error);
+    setPosts([]);
     setLoading(false);
+    return;
   }
+
+  const mapped: Post[] = (res.data ?? []).map((row: any) => {
+    const parsed = parseDocContent(row.content ?? "");
+    const derivedTitle = parsed.title?.trim() || "Sem título";
+
+    return {
+      id: row.id,
+      content: row.content,
+      created_at: row.created_at,
+      title: derivedTitle,
+      excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
+      coverColor: parsed.backgroundColor,
+      // ✅ aqui pode não existir, então “?? null” resolve
+      wallpaperId: (row as any).wallpaper_id ?? null,
+      persona: {
+        id: row.persona_id,
+        name: row.personas?.name ?? "Desconhecido",
+        avatar_url: row.personas?.avatar_url ?? null,
+      },
+    };
+  });
+
+  for (const p of mapped) {
+    personaCache.current[p.persona.id] = {
+      name: p.persona.name,
+      avatar_url: p.persona.avatar_url ?? null,
+    };
+  }
+
+  setPosts(mapped);
+  setLoading(false);
+}
+
 
   async function loadHighlights() {
     setHighlightsLoading(true);
