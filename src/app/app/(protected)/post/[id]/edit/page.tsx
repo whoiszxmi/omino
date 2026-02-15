@@ -19,6 +19,7 @@ import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 
 type PostRow = {
   id: string;
@@ -50,12 +51,7 @@ export default function PostEditPage() {
   );
 
   const canSave = useMemo(() => {
-    const html = (contentHtml || "")
-      .trim()
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
-    return !!title.trim() && !!html;
+    return !!title.trim() && !isRichHtmlEmpty(contentHtml);
   }, [contentHtml, title]);
 
   const drafts = useDraftAutosave({
@@ -118,11 +114,7 @@ export default function PostEditPage() {
     if (!title.trim()) return toast.error("Título é obrigatório.");
     if (!canSave) return toast.error("Escreva alguma coisa antes de salvar.");
 
-    const sanitized = contentHtml
-      .trim()
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
+    const sanitized = contentHtml.trim();
 
     const payload = buildDocContent({
       title,

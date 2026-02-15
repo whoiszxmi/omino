@@ -14,6 +14,7 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 
 type Category = { id: string; name: string; parent_id: string | null };
 
@@ -111,7 +112,7 @@ export default function NewWikiPage() {
   }
 
   async function createWiki() {
-    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const sanitized = contentHtml.trim();
     const contentWithBg = buildDocContent({
       bodyHtml: sanitized,
       backgroundColor,
@@ -119,7 +120,7 @@ export default function NewWikiPage() {
 
     if (!activePersona) return toast.error("Selecione uma persona.");
     if (!title.trim()) return toast.error("Título é obrigatório.");
-    if (!sanitized) return toast.error("Escreva o conteúdo da wiki.");
+    if (isRichHtmlEmpty(sanitized)) return toast.error("Escreva o conteúdo da wiki.");
 
     setSaving(true);
     const { data, error } = await supabase

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
 type Category = {
   id: string;
@@ -25,6 +26,7 @@ type Wiki = {
   category_id: string | null;
   created_at: string;
   updated_at: string;
+  wallpaper_id?: string | null;
 };
 
 const FILTER_ALL = "all";
@@ -53,7 +55,7 @@ export default function WikiHomePage() {
         .order("name", { ascending: true }),
       supabase
         .from("wiki_pages")
-        .select("id,title,cover_url,category_id,created_at,updated_at")
+        .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
         .order("updated_at", { ascending: false })
         .limit(80),
     ]);
@@ -313,9 +315,9 @@ export default function WikiHomePage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                        <WallpaperBackground wallpaperId={w.wallpaper_id} fallback="#dbeafe" className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
                           sem capa
-                        </div>
+                        </WallpaperBackground>
                       )}
                     </div>
 

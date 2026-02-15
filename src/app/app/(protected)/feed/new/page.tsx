@@ -13,6 +13,7 @@ import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 
 export default function NewPostPage() {
   const { activePersona } = useActivePersona();
@@ -49,7 +50,7 @@ export default function NewPostPage() {
       return;
     }
 
-    if (!html || html === "<p></p>") return;
+    if (isRichHtmlEmpty(html)) return;
 
     if (!activePersona) {
       toast.error("Selecione uma persona antes de postar.");
@@ -123,7 +124,7 @@ export default function NewPostPage() {
           <Button
             className="w-full rounded-2xl"
             onClick={() => void createPost()}
-            disabled={saving || !activePersona || !title.trim() || !contentHtml.trim() || contentHtml.trim() === "<p></p>"}
+            disabled={saving || !activePersona || !title.trim() || isRichHtmlEmpty(contentHtml)}
           >
             {saving ? "Publicando..." : "Publicar"}
           </Button>

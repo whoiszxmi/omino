@@ -15,6 +15,7 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 
 type WikiRow = {
   id: string;
@@ -107,13 +108,13 @@ export default function WikiEditPage() {
   async function saveWiki() {
     if (!wiki || !canEdit) return toast.error("Sem permissão para editar.");
 
-    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const sanitized = contentHtml.trim();
     const contentWithBg = buildDocContent({
       bodyHtml: sanitized,
       backgroundColor,
     });
     if (!title.trim()) return toast.error("Título é obrigatório.");
-    if (!sanitized) return toast.error("Conteúdo obrigatório.");
+    if (isRichHtmlEmpty(sanitized)) return toast.error("Conteúdo obrigatório.");
 
     setSaving(true);
     const { error } = await supabase
