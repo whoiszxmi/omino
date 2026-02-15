@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { renderRichHtml } from "@/lib/render/richText";
 import UserCardModal from "@/components/profile/UserCardModal";
 import { X } from "lucide-react";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
 type UiMessage = {
   id: string;
@@ -100,6 +102,7 @@ export default function ChatRoomPage() {
   const [inputHtml, setInputHtml] = useState("");
   const [sending, setSending] = useState(false);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const [chatWallpaperId, setChatWallpaperId] = useState<string | null>(null);
   const [hasReplyToIdColumn, setHasReplyToIdColumn] = useState(true);
 
   const [hasMore, setHasMore] = useState(true);
@@ -199,10 +202,11 @@ export default function ChatRoomPage() {
     try {
       const chatRes = await supabase
         .from("chats")
-        .select("title")
+        .select("title,wallpaper_id")
         .eq("id", validChatId)
         .maybeSingle();
       if (chatRes.data?.title) setChatTitle(chatRes.data.title);
+      setChatWallpaperId((chatRes.data as { wallpaper_id?: string | null } | null)?.wallpaper_id ?? null);
 
       didInitialScrollRef.current = false;
       const res = await supabase
@@ -354,8 +358,8 @@ export default function ChatRoomPage() {
   async function sendMessage() {
     if (!chatId || !isUuid(chatId) || !activePersona || sending) return;
 
-    const cleaned = (inputHtml || "").replace(/<p>\s*<\/p>/g, "").trim();
-    if (!cleaned) return;
+    const cleaned = (inputHtml || "").trim();
+    if (isRichHtmlEmpty(cleaned)) return;
 
     setSending(true);
     try {
@@ -596,9 +600,10 @@ export default function ChatRoomPage() {
         </div>
       </header>
 
+      <WallpaperBackground wallpaperId={chatWallpaperId} className="flex-1">
       <div
         ref={listRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+        className="h-full space-y-3 overflow-y-auto px-4 py-4 md:px-8"
       >
         {!chatId || !isUuid(chatId) ? (
           <p className="text-sm text-muted-foreground">Chat inválido.</p>
@@ -742,6 +747,7 @@ export default function ChatRoomPage() {
           </>
         )}
       </div>
+      </WallpaperBackground>
 
       <div className="border-t bg-background p-3 md:p-4">
         {typingUsers.length > 0 ? (
