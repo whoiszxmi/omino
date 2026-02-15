@@ -41,11 +41,22 @@ export default function NewPublicChatPage() {
       return;
     }
 
-    const { data: chat, error: chatError } = await supabase
+    let chatRes = await supabase
       .from("chats")
       .insert({ title: trimmed, type: "public", wallpaper_id: wallpaperId })
       .select("id")
       .single();
+
+    if (isMissingColumnError(chatRes.error, "wallpaper_id")) {
+      chatRes = await supabase
+        .from("chats")
+        .insert({ title: trimmed, type: "public" })
+        .select("id")
+        .single();
+    }
+
+    const chat = chatRes.data;
+    const chatError = chatRes.error;
 
     if (chatError || !chat) {
       toast.error(chatError?.message ?? "Não foi possível criar o chat público.");

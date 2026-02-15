@@ -67,7 +67,7 @@ export default function FeedPage() {
   async function loadPosts() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query: any = await supabase
       .from("posts")
       .select(
         `
@@ -85,13 +85,32 @@ export default function FeedPage() {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) {
-      console.error("ERRO loadPosts:", error);
+    if (isMissingColumnError(query.error, "wallpaper_id")) {
+      query = await supabase
+        .from("posts")
+        .select(
+          `
+            id,
+            content,
+            created_at,
+            persona_id,
+            personas (
+              name,
+              avatar_url
+            )
+          `,
+        )
+        .order("created_at", { ascending: false })
+        .limit(50);
+    }
+
+    if (query.error) {
+      console.error("ERRO loadPosts:", query.error);
       setLoading(false);
       return;
     }
 
-    const mapped: Post[] = (data ?? []).map((row: any) => {
+    const mapped: Post[] = (query.data ?? []).map((row: any) => {
       const parsed = parseDocContent(row.content ?? "");
       const derivedTitle = parsed.title?.trim() || "Sem título";
       return {

@@ -45,7 +45,7 @@ export default function PostViewPage() {
   async function load() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query: any = await supabase
       .from("posts")
       .select(`id,content,created_at,persona_id,wallpaper_id,ui_theme,personas(id,name,avatar_url)`)
       .eq("id", postId)
@@ -58,7 +58,7 @@ export default function PostViewPage() {
       return;
     }
 
-    setPost((data ?? null) as PostRow | null);
+    setPost((query.data ?? null) as PostRow | null);
     setLoading(false);
   }
 

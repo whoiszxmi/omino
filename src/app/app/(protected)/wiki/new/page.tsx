@@ -125,7 +125,7 @@ export default function NewWikiPage() {
     if (isRichHtmlEmpty(sanitized)) return toast.error("Escreva o conteúdo da wiki.");
 
     setSaving(true);
-    const { data, error } = await supabase
+    let createRes = await supabase
       .from("wiki_pages")
       .insert({
         created_by_persona_id: activePersona.id,
@@ -138,12 +138,26 @@ export default function NewWikiPage() {
       .select("id")
       .single();
 
+    if (isMissingColumnError(createRes.error, "wallpaper_id")) {
+      createRes = await supabase
+        .from("wiki_pages")
+        .insert({
+          created_by_persona_id: activePersona.id,
+          category_id: categoryId,
+          title: title.trim(),
+          cover_url: coverUrl,
+          content_html: contentWithBg,
+        })
+        .select("id")
+        .single();
+    }
+
     setSaving(false);
-    if (error) return toast.error(error.message);
+    if (createRes.error) return toast.error(createRes.error.message);
 
     await drafts.discard();
     toast.success("Wiki criada!");
-    location.href = data?.id ? `/app/wiki/${data.id}` : "/app/wiki";
+    location.href = createRes.data?.id ? `/app/wiki/${createRes.data.id}` : "/app/wiki";
   }
 
   return (

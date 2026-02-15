@@ -69,14 +69,22 @@ export default function WikiEditPage() {
 
   useEffect(() => {
     async function load() {
-      const [wikiRes, categoriesRes] = await Promise.all([
-        supabase
+      let wikiRes: any = await supabase
+        .from("wiki_pages")
+        .select("id,title,content_html,cover_url,category_id,created_by_persona_id,wallpaper_id")
+        .eq("id", wikiId)
+        .maybeSingle();
+      if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
+        wikiRes = await supabase
           .from("wiki_pages")
           .select("id,title,content_html,cover_url,category_id,created_by_persona_id,wallpaper_id")
           .eq("id", wikiId)
-          .maybeSingle(),
-        supabase.from("wiki_categories").select("id,name").order("name", { ascending: true }),
-      ]);
+          .maybeSingle();
+      }
+      const categoriesRes = await supabase
+        .from("wiki_categories")
+        .select("id,name")
+        .order("name", { ascending: true });
 
       if (!wikiRes.error && wikiRes.data) {
         const row = wikiRes.data as WikiRow;
@@ -121,7 +129,7 @@ export default function WikiEditPage() {
     if (isRichHtmlEmpty(sanitized)) return toast.error("Conteúdo obrigatório.");
 
     setSaving(true);
-    const { error } = await supabase
+    let updateRes = await supabase
       .from("wiki_pages")
       .update({
         title: title.trim(),
@@ -131,9 +139,21 @@ export default function WikiEditPage() {
         wallpaper_id: wallpaperId,
       })
       .eq("id", wiki.id);
+
+    if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
+      updateRes = await supabase
+        .from("wiki_pages")
+        .update({
+          title: title.trim(),
+          content_html: contentWithBg,
+          cover_url: coverUrl,
+          category_id: categoryId,
+        })
+        .eq("id", wiki.id);
+    }
     setSaving(false);
 
-    if (error) return toast.error(error.message);
+    if (updateRes.error) return toast.error(updateRes.error.message);
 
     await drafts.discard();
     toast.success("Wiki atualizada!");

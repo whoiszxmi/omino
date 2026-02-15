@@ -200,11 +200,18 @@ export default function ChatRoomPage() {
   async function loadInitial(validChatId: string) {
     setLoading(true);
     try {
-      const chatRes = await supabase
+      let chatRes: any = await supabase
         .from("chats")
         .select("title,wallpaper_id")
         .eq("id", validChatId)
         .maybeSingle();
+      if (isMissingColumnError(chatRes.error, "wallpaper_id")) {
+        chatRes = await supabase
+          .from("chats")
+          .select("title")
+          .eq("id", validChatId)
+          .maybeSingle();
+      }
       if (chatRes.data?.title) setChatTitle(chatRes.data.title);
       setChatWallpaperId((chatRes.data as { wallpaper_id?: string | null } | null)?.wallpaper_id ?? null);
 
@@ -576,6 +583,7 @@ export default function ChatRoomPage() {
   }, [messages, activePersona?.id]);
 
   return (
+    <WallpaperBackground wallpaperId={chatWallpaperId} className="min-h-dvh w-full">
     <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3 md:px-6">
@@ -749,7 +757,7 @@ export default function ChatRoomPage() {
       </div>
       </WallpaperBackground>
 
-      <div className="border-t bg-background p-3 md:p-4">
+      <div className="border-t bg-background/85 backdrop-blur p-3 md:p-4">
         {typingUsers.length > 0 ? (
           <div className="mb-2 text-xs text-muted-foreground">
             {typingUsers.join(", ")}{" "}
@@ -832,5 +840,6 @@ export default function ChatRoomPage() {
         </div>
       </div>
     </div>
+    </WallpaperBackground>
   );
 }

@@ -51,7 +51,7 @@ export default function WikiViewPage() {
   async function load() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query: any = await supabase
       .from("wiki_pages")
       .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,ui_theme,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
       .eq("id", wikiId)
@@ -64,7 +64,7 @@ export default function WikiViewPage() {
       return;
     }
 
-    if (!data) {
+    if (!query.data) {
       setWiki(null);
       setLoading(false);
       return;

@@ -78,26 +78,34 @@ export default function PostEditPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const { data, error } = await supabase
+      let query: any = await supabase
         .from("posts")
         .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
         .eq("id", postId)
         .maybeSingle();
 
-      if (error) {
-        toast.error(error.message);
+      if (isMissingColumnError(query.error, "wallpaper_id")) {
+        query = await supabase
+          .from("posts")
+          .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+          .eq("id", postId)
+          .maybeSingle();
+      }
+
+      if (query.error) {
+        toast.error(query.error.message);
         setPost(null);
         setLoading(false);
         return;
       }
 
-      if (!data) {
+      if (!query.data) {
         setPost(null);
         setLoading(false);
         return;
       }
 
-      const row = data as unknown as PostRow;
+      const row = query.data as unknown as PostRow;
       const parsed = parseDocContent(row.content ?? "");
       setPost(row);
       setTitle(parsed.title);
@@ -128,11 +136,17 @@ export default function PostEditPage() {
 
     setSaving(true);
     try {
-      const { error } = await supabase
+      let updateRes = await supabase
         .from("posts")
         .update({ content: payload, wallpaper_id: wallpaperId })
         .eq("id", post.id);
-      if (error) throw error;
+      if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
+        updateRes = await supabase
+          .from("posts")
+          .update({ content: payload })
+          .eq("id", post.id);
+      }
+      if (updateRes.error) throw updateRes.error;
 
       await drafts.discard();
       toast.success("Post atualizado!");

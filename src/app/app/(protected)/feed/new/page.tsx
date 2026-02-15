@@ -67,16 +67,23 @@ export default function NewPostPage() {
       backgroundColor,
     });
 
-    const { error } = await supabase.from("posts").insert({
+    let result = await supabase.from("posts").insert({
       persona_id: activePersona.id,
       content: payload,
       wallpaper_id: wallpaperId,
     });
 
+    if (isMissingColumnError(result.error, "wallpaper_id")) {
+      result = await supabase.from("posts").insert({
+        persona_id: activePersona.id,
+        content: payload,
+      });
+    }
+
     setSaving(false);
 
-    if (error) {
-      toast.error(error.message);
+    if (result.error) {
+      toast.error(result.error.message);
       return;
     }
 

@@ -48,17 +48,24 @@ export default function WikiHomePage() {
   async function load() {
     setLoading(true);
 
-    const [catRes, wikiRes] = await Promise.all([
-      supabase
-        .from("wiki_categories")
-        .select("id,name,parent_id,created_at")
-        .order("name", { ascending: true }),
-      supabase
+    const catRes = await supabase
+      .from("wiki_categories")
+      .select("id,name,parent_id,created_at")
+      .order("name", { ascending: true });
+
+    let wikiRes: any = await supabase
+      .from("wiki_pages")
+      .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
+      .order("updated_at", { ascending: false })
+      .limit(80);
+
+    if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
+      wikiRes = await supabase
         .from("wiki_pages")
         .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
         .order("updated_at", { ascending: false })
-        .limit(80),
-    ]);
+        .limit(80);
+    }
 
     if (catRes.error) {
       console.error("ERRO load categories:", catRes.error);
