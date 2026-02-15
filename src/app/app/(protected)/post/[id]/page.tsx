@@ -15,6 +15,7 @@ import { renderRichHtml } from "@/lib/render/richText";
 import { parseDocContent } from "@/lib/content/docMeta";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 type PostRow = {
   id: string;
@@ -45,14 +46,25 @@ export default function PostViewPage() {
   async function load() {
     setLoading(true);
 
-    let query: any = await supabase
-      .from("posts")
-      .select(`id,content,created_at,persona_id,wallpaper_id,ui_theme,personas(id,name,avatar_url)`)
-      .eq("id", postId)
-      .maybeSingle();
+    const query = await safeSelect({
+      missingColumn: "ui_theme",
+      // fallback para bancos sem ui_theme/wallpaper_id ainda aplicados
+      primary: () =>
+        supabase
+          .from("posts")
+          .select(`id,content,created_at,persona_id,wallpaper_id,ui_theme,personas(id,name,avatar_url)`)
+          .eq("id", postId)
+          .maybeSingle(),
+      fallback: () =>
+        supabase
+          .from("posts")
+          .select(`id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)`)
+          .eq("id", postId)
+          .maybeSingle(),
+    });
 
-    if (error) {
-      toast.error(error.message);
+    if (query.error) {
+      toast.error(query.error.message);
       setPost(null);
       setLoading(false);
       return;

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { FileText } from "lucide-react";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 // ⚠️ ajuste se necessário
 import PostComments from "@/app/app/(protected)/feed/PostComments";
@@ -34,19 +35,6 @@ type Post = {
     avatar_url?: string | null;
   };
 };
-
-// ✅ resolve “missing column” do PostgREST (42703)
-function isMissingColumnError(err: unknown, column: string) {
-  if (!err || typeof err !== "object") return false;
-  const anyErr = err as any;
-  const code = String(anyErr.code ?? "");
-  const message = String(anyErr.message ?? "").toLowerCase();
-  const details = String(anyErr.details ?? "").toLowerCase();
-  const col = column.toLowerCase();
-
-  const mentions = message.includes(col) || details.includes(col);
-  return code === "42703" || (mentions && message.includes("does not exist"));
-}
 
 function toExcerpt(html: string) {
   const plain = html
@@ -75,60 +63,58 @@ export default function FeedPage() {
   >({});
 
   async function loadPosts() {
-  setLoading(true);
+    setLoading(true);
 
-  // tenta com wallpaper_id
-  const resWithWallpaper = await supabase
-    .from("posts")
-    .select(
-      `
-        id,
-        content,
-        created_at,
-        persona_id,
-        wallpaper_id,
-        personas:personas (
-          id,
-          name,
-          avatar_url
-        )
-      `,
-    )
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  // fallback sem wallpaper_id (se a coluna não existir)
-  const resNoWallpaper = resWithWallpaper.error &&
-    isMissingColumnError(resWithWallpaper.error, "wallpaper_id")
-    ? await supabase
-        .from("posts")
-        .select(
-          `
-            id,
-            content,
-            created_at,
-            persona_id,
-            personas:personas (
+    const res = await safeSelect({
+      missingColumn: "wallpaper_id",
+      // fallback para ambientes sem wallpaper_id
+      primary: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
               id,
-              name,
-              avatar_url
-            )
-          `,
-        )
-        .order("created_at", { ascending: false })
-        .limit(50)
-    : null;
+              content,
+              created_at,
+              persona_id,
+              wallpaper_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+      fallback: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
+              id,
+              content,
+              created_at,
+              persona_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+    });
 
-  const res = resNoWallpaper ?? resWithWallpaper;
+    if (res.error) {
+      console.error("ERRO loadPosts:", res.error);
+      setPosts([]);
+      setLoading(false);
+      return;
+    }
 
-  if (res.error) {
-    console.error("ERRO loadPosts:", res.error);
-    setPosts([]);
-    setLoading(false);
-    return;
-  }
-
-  const mapped: Post[] = (res.data ?? []).map((row: any) => {
+    const mapped: Post[] = (res.data ?? []).map((row: any) => {
     const parsed = parseDocContent(row.content ?? "");
     const derivedTitle = parsed.title?.trim() || "Sem título";
 
@@ -149,16 +135,16 @@ export default function FeedPage() {
     };
   });
 
-  for (const p of mapped) {
-    personaCache.current[p.persona.id] = {
-      name: p.persona.name,
-      avatar_url: p.persona.avatar_url ?? null,
-    };
-  }
+    for (const p of mapped) {
+      personaCache.current[p.persona.id] = {
+        name: p.persona.name,
+        avatar_url: p.persona.avatar_url ?? null,
+      };
+    }
 
-  setPosts(mapped);
-  setLoading(false);
-}
+    setPosts(mapped);
+    setLoading(false);
+  }
 
 
   async function loadHighlights() {
@@ -175,17 +161,21 @@ export default function FeedPage() {
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
 
-    const missingWikiIds = limited
-      .filter((item) => item.target_type === "wiki" && !item.title)
+    const wikiIds = limited
+      .filter((item) => item.target_type === "wiki")
+      .map((item) => item.target_id);
+    const missingPostIds = limited
+      .filter((item) => item.target_type === "post" && !item.title)
       .map((item) => item.target_id);
 
     let wikiTitles = new Map<string, string>();
+    let postTitles = new Map<string, string>();
 
-    if (missingWikiIds.length > 0) {
+    if (wikiIds.length > 0) {
       const { data: wikiData, error: wikiErr } = await supabase
         .from("wiki_pages")
         .select("id, title")
-        .in("id", missingWikiIds);
+        .in("id", wikiIds);
 
       if (wikiErr) console.error("ERRO loadHighlights (wiki titles):", wikiErr);
 
@@ -197,12 +187,34 @@ export default function FeedPage() {
       );
     }
 
+    if (missingPostIds.length > 0) {
+      const { data: postData, error: postErr } = await supabase
+        .from("posts")
+        .select("id, content")
+        .in("id", missingPostIds);
+
+      if (postErr) console.error("ERRO loadHighlights (post titles):", postErr);
+
+      postTitles = new Map(
+        (postData ?? []).map((row: any) => {
+          const parsed = parseDocContent((row.content as string) ?? "");
+          return [row.id as string, parsed.title?.trim() || "Post"];
+        }),
+      );
+    }
+
     const normalized: Highlight[] = limited.map((item) => {
-      if (item.title) return item;
       if (item.target_type === "wiki") {
-        return { ...item, title: wikiTitles.get(item.target_id) ?? "Wiki" };
+        return {
+          ...item,
+          title: wikiTitles.get(item.target_id) || item.title?.trim() || "Wiki",
+        };
       }
-      return { ...item, title: "Post" };
+
+      return {
+        ...item,
+        title: item.title?.trim() || postTitles.get(item.target_id) || "Post",
+      };
     });
 
     setHighlights(normalized);
