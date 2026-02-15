@@ -15,7 +15,6 @@ import { renderRichHtml } from "@/lib/render/richText";
 import { parseDocContent } from "@/lib/content/docMeta";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type PostRow = {
   id: string;
@@ -52,16 +51,8 @@ export default function PostViewPage() {
       .eq("id", postId)
       .maybeSingle();
 
-    if (isMissingColumnError(query.error, "wallpaper_id") || isMissingColumnError(query.error, "ui_theme")) {
-      query = await supabase
-        .from("posts")
-        .select(`id,content,created_at,persona_id,personas(id,name,avatar_url)`)
-        .eq("id", postId)
-        .maybeSingle();
-    }
-
-    if (query.error) {
-      toast.error(query.error.message);
+    if (error) {
+      toast.error(error.message);
       setPost(null);
       setLoading(false);
       return;
@@ -104,9 +95,6 @@ export default function PostViewPage() {
     uiTheme: post?.ui_theme,
   });
   const darkMode = tone === "light";
-  const surfaceClass = darkMode
-    ? "border-white/20 bg-black/35 backdrop-blur-sm"
-    : "bg-background/85";
 
   if (loading) {
     return <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8"><AppPageSkeleton compact /></div>;
@@ -155,7 +143,7 @@ export default function PostViewPage() {
           ) : null}
         </header>
 
-        <Card className={`rounded-2xl shadow-sm ${surfaceClass}`}>
+        <Card className="rounded-2xl shadow-sm bg-background/85">
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -169,18 +157,16 @@ export default function PostViewPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            <WallpaperBackground wallpaperId={post.wallpaper_id} fallback={parsed.backgroundColor} className="rounded-xl border border-white/10 p-3 md:p-4">
-              <div
-                className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
-                dangerouslySetInnerHTML={{ __html: safeHtml }}
-              />
-            </WallpaperBackground>
+            <div
+              className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
+              dangerouslySetInnerHTML={{ __html: safeHtml }}
+            />
 
             <HighlightButtonGroup targetType="post" targetId={post.id} title={`Post de ${post.personas?.name ?? "Persona"}`} />
           </CardContent>
         </Card>
 
-        <Card className={`rounded-2xl shadow-sm ${surfaceClass}`}>
+        <Card className="rounded-2xl shadow-sm bg-background/85">
           <CardHeader className="pb-2"><CardTitle className="text-base">Comentários</CardTitle></CardHeader>
           <CardContent><PostComments postId={post.id} /></CardContent>
         </Card>

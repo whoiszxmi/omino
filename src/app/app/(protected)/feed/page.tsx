@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { FileText } from "lucide-react";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 // Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
 // (ex: "@/components/feed/PostComments")

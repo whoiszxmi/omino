@@ -11,7 +11,6 @@ import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type Category = {
   id: string;
@@ -63,7 +62,7 @@ export default function WikiHomePage() {
     if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
       wikiRes = await supabase
         .from("wiki_pages")
-        .select("id,title,cover_url,category_id,created_at,updated_at")
+        .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
         .order("updated_at", { ascending: false })
         .limit(80);
     }

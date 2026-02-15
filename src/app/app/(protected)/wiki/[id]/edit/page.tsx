@@ -17,7 +17,6 @@ import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type WikiRow = {
   id: string;
@@ -78,7 +77,7 @@ export default function WikiEditPage() {
       if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
         wikiRes = await supabase
           .from("wiki_pages")
-          .select("id,title,content_html,cover_url,category_id,created_by_persona_id")
+          .select("id,title,content_html,cover_url,category_id,created_by_persona_id,wallpaper_id")
           .eq("id", wikiId)
           .maybeSingle();
       }

@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 export default function NewPublicChatPage() {
   const router = useRouter();

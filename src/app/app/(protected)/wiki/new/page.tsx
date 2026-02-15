@@ -16,7 +16,6 @@ import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type Category = { id: string; name: string; parent_id: string | null };
 

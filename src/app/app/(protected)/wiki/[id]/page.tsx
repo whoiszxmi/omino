@@ -13,7 +13,6 @@ import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type WikiRow = {
   id: string;
@@ -58,16 +57,8 @@ export default function WikiViewPage() {
       .eq("id", wikiId)
       .maybeSingle();
 
-    if (isMissingColumnError(query.error, "wallpaper_id") || isMissingColumnError(query.error, "ui_theme")) {
-      query = await supabase
-        .from("wiki_pages")
-        .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
-        .eq("id", wikiId)
-        .maybeSingle();
-    }
-
-    if (query.error) {
-      toast.error(query.error.message);
+    if (error) {
+      toast.error(error.message);
       setWiki(null);
       setLoading(false);
       return;
@@ -79,7 +70,7 @@ export default function WikiViewPage() {
       return;
     }
 
-    setWiki(query.data as unknown as WikiRow);
+    setWiki(data as unknown as WikiRow);
     setLoading(false);
   }
 
@@ -95,9 +86,6 @@ export default function WikiViewPage() {
     uiTheme: wiki?.ui_theme,
   });
   const darkMode = tone === "light";
-  const surfaceClass = darkMode
-    ? "border-white/20 bg-black/35 backdrop-blur-sm"
-    : "bg-background/85";
 
   if (loading) {
     return <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8"><AppPageSkeleton compact /></div>;
@@ -130,7 +118,7 @@ export default function WikiViewPage() {
           </div>
         </header>
 
-        <div className={`overflow-hidden rounded-2xl border ${surfaceClass}`}>
+        <div className="overflow-hidden rounded-2xl border bg-background/80">
           <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="relative h-48 md:h-72 w-full">
             {wiki.cover_url ? <img src={wiki.cover_url} alt={wiki.title} className="h-full w-full object-cover" /> : null}
           </WallpaperBackground>
@@ -147,16 +135,12 @@ export default function WikiViewPage() {
           </div>
         </div>
 
-        <Card className={`rounded-2xl shadow-sm ${surfaceClass}`}>
+        <Card className="rounded-2xl shadow-sm bg-background/85">
           <CardHeader className="pb-2"><CardTitle className="text-base">Conteúdo</CardTitle></CardHeader>
-          <CardContent>
-            <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="rounded-xl border border-white/10 p-3 md:p-4">
-              <div
-                className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
-                dangerouslySetInnerHTML={{ __html: safeHtml }}
-              />
-            </WallpaperBackground>
-          </CardContent>
+          <CardContent
+            className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
         </Card>
       </div>
     </WallpaperBackground>

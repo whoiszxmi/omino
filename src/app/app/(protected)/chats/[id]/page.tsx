@@ -13,7 +13,6 @@ import UserCardModal from "@/components/profile/UserCardModal";
 import { X } from "lucide-react";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type UiMessage = {
   id: string;
@@ -609,6 +608,7 @@ export default function ChatRoomPage() {
         </div>
       </header>
 
+      <WallpaperBackground wallpaperId={chatWallpaperId} className="flex-1">
       <div
         ref={listRef}
         className="h-full space-y-3 overflow-y-auto px-4 py-4 md:px-8"
@@ -755,6 +755,7 @@ export default function ChatRoomPage() {
           </>
         )}
       </div>
+      </WallpaperBackground>
 
       <div className="border-t bg-background/85 backdrop-blur p-3 md:p-4">
         {typingUsers.length > 0 ? (

@@ -15,7 +15,6 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 export default function NewPostPage() {
   const { activePersona } = useActivePersona();

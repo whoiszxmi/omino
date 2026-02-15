@@ -20,7 +20,6 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
 
 type PostRow = {
