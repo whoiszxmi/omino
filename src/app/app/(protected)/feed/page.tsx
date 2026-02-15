@@ -19,6 +19,7 @@ import {
   getCommunityHighlights,
   type Highlight,
   type HighlightTargetType,
+  type NormalizedHighlight,
 } from "@/lib/highlights/highlights";
 
 type Post = {
@@ -52,7 +53,7 @@ export default function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   const [highlightsLoading, setHighlightsLoading] = useState(true);
-  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [highlights, setHighlights] = useState<NormalizedHighlight[]>([]);
   const [highlightFilter, setHighlightFilter] = useState<
     "all" | HighlightTargetType
   >("all");
@@ -319,14 +320,16 @@ export default function FeedPage() {
               <div className="grid grid-cols-2 gap-3">
                 {filteredHighlights.map((item) => {
                   const isWiki = item.target_type === "wiki";
-                  const title = item.title ?? (isWiki ? "Wiki" : "Post");
+                  const title = item.title;
+                  const disabled = !!item.isRemoved;
 
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                      className={`aspect-square overflow-hidden rounded-2xl border text-left transition ${disabled ? "cursor-not-allowed opacity-75" : "hover:bg-muted/30"}`}
                       onClick={() => {
+                        if (disabled) return;
                         location.href = isWiki
                           ? `/app/wiki/${item.target_id}`
                           : `/app/post/${item.target_id}`;
@@ -352,7 +355,7 @@ export default function FeedPage() {
 
                         <div className="space-y-2 p-3">
                           <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                            {isWiki ? "Wiki" : "Post"}
+                            {item.isRemoved ? "Removido" : isWiki ? "Wiki" : "Post"}
                           </span>
 
                           <div className="truncate text-sm font-medium">
