@@ -15,6 +15,9 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND, parseDocContent } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type WikiRow = {
   id: string;
@@ -23,6 +26,7 @@ type WikiRow = {
   cover_url: string | null;
   category_id: string | null;
   created_by_persona_id: string;
+  wallpaper_id?: string | null;
 };
 
 export default function WikiEditPage() {
@@ -39,6 +43,7 @@ export default function WikiEditPage() {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,14 +70,22 @@ export default function WikiEditPage() {
 
   useEffect(() => {
     async function load() {
-      const [wikiRes, categoriesRes] = await Promise.all([
-        supabase
+      let wikiRes: any = await supabase
+        .from("wiki_pages")
+        .select("id,title,content_html,cover_url,category_id,created_by_persona_id,wallpaper_id")
+        .eq("id", wikiId)
+        .maybeSingle();
+      if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
+        wikiRes = await supabase
           .from("wiki_pages")
           .select("id,title,content_html,cover_url,category_id,created_by_persona_id")
           .eq("id", wikiId)
-          .maybeSingle(),
-        supabase.from("wiki_categories").select("id,name").order("name", { ascending: true }),
-      ]);
+          .maybeSingle();
+      }
+      const categoriesRes = await supabase
+        .from("wiki_categories")
+        .select("id,name")
+        .order("name", { ascending: true });
 
       if (!wikiRes.error && wikiRes.data) {
         const row = wikiRes.data as WikiRow;
@@ -83,6 +96,7 @@ export default function WikiEditPage() {
         setBackgroundColor(parsed.backgroundColor);
         setCoverUrl(row.cover_url ?? null);
         setCategoryId(row.category_id ?? null);
+        setWallpaperId(row.wallpaper_id ?? null);
       }
 
       setCategories((categoriesRes.data ?? []) as Array<{ id: string; name: string }>);
@@ -107,27 +121,40 @@ export default function WikiEditPage() {
   async function saveWiki() {
     if (!wiki || !canEdit) return toast.error("Sem permissão para editar.");
 
-    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const sanitized = contentHtml.trim();
     const contentWithBg = buildDocContent({
       bodyHtml: sanitized,
       backgroundColor,
     });
     if (!title.trim()) return toast.error("Título é obrigatório.");
-    if (!sanitized) return toast.error("Conteúdo obrigatório.");
+    if (isRichHtmlEmpty(sanitized)) return toast.error("Conteúdo obrigatório.");
 
     setSaving(true);
-    const { error } = await supabase
+    let updateRes = await supabase
       .from("wiki_pages")
       .update({
         title: title.trim(),
         content_html: contentWithBg,
         cover_url: coverUrl,
         category_id: categoryId,
+        wallpaper_id: wallpaperId,
       })
       .eq("id", wiki.id);
+
+    if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
+      updateRes = await supabase
+        .from("wiki_pages")
+        .update({
+          title: title.trim(),
+          content_html: contentWithBg,
+          cover_url: coverUrl,
+          category_id: categoryId,
+        })
+        .eq("id", wiki.id);
+    }
     setSaving(false);
 
-    if (error) return toast.error(error.message);
+    if (updateRes.error) return toast.error(updateRes.error.message);
 
     await drafts.discard();
     toast.success("Wiki atualizada!");
@@ -180,6 +207,8 @@ export default function WikiEditPage() {
           </select>
 
           <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper da wiki" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor valueHtml={contentHtml} onChangeHtml={setContentHtml} placeholder="Edite o conteúdo..." folder="wikis" imageInsertMode="both" enableTables />

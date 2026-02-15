@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type Category = {
   id: string;
@@ -25,6 +27,7 @@ type Wiki = {
   category_id: string | null;
   created_at: string;
   updated_at: string;
+  wallpaper_id?: string | null;
 };
 
 const FILTER_ALL = "all";
@@ -46,17 +49,24 @@ export default function WikiHomePage() {
   async function load() {
     setLoading(true);
 
-    const [catRes, wikiRes] = await Promise.all([
-      supabase
-        .from("wiki_categories")
-        .select("id,name,parent_id,created_at")
-        .order("name", { ascending: true }),
-      supabase
+    const catRes = await supabase
+      .from("wiki_categories")
+      .select("id,name,parent_id,created_at")
+      .order("name", { ascending: true });
+
+    let wikiRes: any = await supabase
+      .from("wiki_pages")
+      .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
+      .order("updated_at", { ascending: false })
+      .limit(80);
+
+    if (isMissingColumnError(wikiRes.error, "wallpaper_id")) {
+      wikiRes = await supabase
         .from("wiki_pages")
         .select("id,title,cover_url,category_id,created_at,updated_at")
         .order("updated_at", { ascending: false })
-        .limit(80),
-    ]);
+        .limit(80);
+    }
 
     if (catRes.error) {
       console.error("ERRO load categories:", catRes.error);
@@ -313,9 +323,9 @@ export default function WikiHomePage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                        <WallpaperBackground wallpaperId={w.wallpaper_id} fallback="#dbeafe" className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
                           sem capa
-                        </div>
+                        </WallpaperBackground>
                       )}
                     </div>
 

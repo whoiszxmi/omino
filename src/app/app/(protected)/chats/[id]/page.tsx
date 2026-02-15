@@ -11,6 +11,9 @@ import { toast } from "sonner";
 import { renderRichHtml } from "@/lib/render/richText";
 import UserCardModal from "@/components/profile/UserCardModal";
 import { X } from "lucide-react";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type UiMessage = {
   id: string;
@@ -100,6 +103,7 @@ export default function ChatRoomPage() {
   const [inputHtml, setInputHtml] = useState("");
   const [sending, setSending] = useState(false);
   const [chatTitle, setChatTitle] = useState("Chat");
+  const [chatWallpaperId, setChatWallpaperId] = useState<string | null>(null);
   const [hasReplyToIdColumn, setHasReplyToIdColumn] = useState(true);
 
   const [hasMore, setHasMore] = useState(true);
@@ -197,12 +201,20 @@ export default function ChatRoomPage() {
   async function loadInitial(validChatId: string) {
     setLoading(true);
     try {
-      const chatRes = await supabase
+      let chatRes: any = await supabase
         .from("chats")
-        .select("title")
+        .select("title,wallpaper_id")
         .eq("id", validChatId)
         .maybeSingle();
+      if (isMissingColumnError(chatRes.error, "wallpaper_id")) {
+        chatRes = await supabase
+          .from("chats")
+          .select("title")
+          .eq("id", validChatId)
+          .maybeSingle();
+      }
       if (chatRes.data?.title) setChatTitle(chatRes.data.title);
+      setChatWallpaperId((chatRes.data as { wallpaper_id?: string | null } | null)?.wallpaper_id ?? null);
 
       didInitialScrollRef.current = false;
       const res = await supabase
@@ -354,8 +366,8 @@ export default function ChatRoomPage() {
   async function sendMessage() {
     if (!chatId || !isUuid(chatId) || !activePersona || sending) return;
 
-    const cleaned = (inputHtml || "").replace(/<p>\s*<\/p>/g, "").trim();
-    if (!cleaned) return;
+    const cleaned = (inputHtml || "").trim();
+    if (isRichHtmlEmpty(cleaned)) return;
 
     setSending(true);
     try {
@@ -572,6 +584,7 @@ export default function ChatRoomPage() {
   }, [messages, activePersona?.id]);
 
   return (
+    <WallpaperBackground wallpaperId={chatWallpaperId} className="min-h-dvh w-full">
     <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3 md:px-6">
@@ -598,7 +611,7 @@ export default function ChatRoomPage() {
 
       <div
         ref={listRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+        className="h-full space-y-3 overflow-y-auto px-4 py-4 md:px-8"
       >
         {!chatId || !isUuid(chatId) ? (
           <p className="text-sm text-muted-foreground">Chat inválido.</p>
@@ -743,7 +756,7 @@ export default function ChatRoomPage() {
         )}
       </div>
 
-      <div className="border-t bg-background p-3 md:p-4">
+      <div className="border-t bg-background/85 backdrop-blur p-3 md:p-4">
         {typingUsers.length > 0 ? (
           <div className="mb-2 text-xs text-muted-foreground">
             {typingUsers.join(", ")}{" "}
@@ -826,5 +839,6 @@ export default function ChatRoomPage() {
         </div>
       </div>
     </div>
+    </WallpaperBackground>
   );
 }

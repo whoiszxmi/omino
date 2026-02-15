@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { parseDocContent } from "@/lib/content/docMeta";
 import { FileText } from "lucide-react";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 // Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
 // (ex: "@/components/feed/PostComments")
@@ -29,6 +31,7 @@ type Post = {
   title: string;
   excerpt: string;
   coverColor: string;
+  wallpaperId: string | null;
   persona: {
     id: string;
     name: string;
@@ -65,7 +68,7 @@ export default function FeedPage() {
   async function loadPosts() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query: any = await supabase
       .from("posts")
       .select(
         `
@@ -73,6 +76,7 @@ export default function FeedPage() {
           content,
           created_at,
           persona_id,
+          wallpaper_id,
           personas (
             name,
             avatar_url
@@ -82,13 +86,32 @@ export default function FeedPage() {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) {
-      console.error("ERRO loadPosts:", error);
+    if (isMissingColumnError(query.error, "wallpaper_id")) {
+      query = await supabase
+        .from("posts")
+        .select(
+          `
+            id,
+            content,
+            created_at,
+            persona_id,
+            personas (
+              name,
+              avatar_url
+            )
+          `,
+        )
+        .order("created_at", { ascending: false })
+        .limit(50);
+    }
+
+    if (query.error) {
+      console.error("ERRO loadPosts:", query.error);
       setLoading(false);
       return;
     }
 
-    const mapped: Post[] = (data ?? []).map((row: any) => {
+    const mapped: Post[] = (query.data ?? []).map((row: any) => {
       const parsed = parseDocContent(row.content ?? "");
       const derivedTitle = parsed.title?.trim() || "Sem título";
       return {
@@ -98,6 +121,7 @@ export default function FeedPage() {
         title: derivedTitle,
         excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
         coverColor: parsed.backgroundColor,
+        wallpaperId: row.wallpaper_id ?? null,
         persona: {
           id: row.persona_id,
           name: row.personas?.name ?? "Desconhecido",
@@ -294,7 +318,9 @@ export default function FeedPage() {
                               alt={title}
                               className="h-full w-full object-cover"
                             />
-                          ) : null}
+                          ) : (
+                            <WallpaperBackground wallpaperId={isWiki ? "frostBlue" : "royalGrid"} fallback="#dbeafe" className="h-full w-full" />
+                          )}
                         </div>
 
                         <div className="space-y-2 p-3">
@@ -348,10 +374,7 @@ export default function FeedPage() {
 
               <CardContent className="space-y-3">
                 <div className="relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
-                  <div
-                    className="h-full w-full"
-                    style={{ backgroundColor: p.coverColor || "#f8fafc" }}
-                  />
+                  <WallpaperBackground wallpaperId={p.wallpaperId} fallback={p.coverColor || "#f8fafc"} className="h-full w-full" />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <FileText className="h-8 w-8 text-muted-foreground/70" />
                   </div>

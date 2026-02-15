@@ -10,6 +10,10 @@ import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { renderRichHtml } from "@/lib/render/richText";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { parseDocContent } from "@/lib/content/docMeta";
+import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type WikiRow = {
   id: string;
@@ -20,6 +24,8 @@ type WikiRow = {
   created_by_persona_id: string;
   created_at: string;
   updated_at: string;
+  wallpaper_id?: string | null;
+  ui_theme?: UiTheme | null;
   personas?: { id: string; name: string; avatar_url: string | null } | null;
   wiki_categories?: {
     id: string;
@@ -46,181 +52,113 @@ export default function WikiViewPage() {
   async function load() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query: any = await supabase
       .from("wiki_pages")
-      .select(
-        `
-        id,
-        title,
-        content_html,
-        cover_url,
-        category_id,
-        created_by_persona_id,
-        created_at,
-        updated_at,
-        personas (
-          id,
-          name,
-          avatar_url
-        ),
-        wiki_categories (
-          id,
-          name,
-          parent_id
-        )
-      `,
-      )
+      .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,ui_theme,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
       .eq("id", wikiId)
       .maybeSingle();
 
-    if (error) {
-      console.error("ERRO load wiki:", error);
-      toast.error(error.message);
+    if (isMissingColumnError(query.error, "wallpaper_id") || isMissingColumnError(query.error, "ui_theme")) {
+      query = await supabase
+        .from("wiki_pages")
+        .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
+        .eq("id", wikiId)
+        .maybeSingle();
+    }
+
+    if (query.error) {
+      toast.error(query.error.message);
       setWiki(null);
       setLoading(false);
       return;
     }
 
-    if (!data) {
+    if (!query.data) {
       setWiki(null);
       setLoading(false);
       return;
     }
 
-    setWiki(data as any);
+    setWiki(query.data as unknown as WikiRow);
     setLoading(false);
   }
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void load();
   }, [wikiId]);
 
-  const safeHtml = useMemo(
-    () => renderRichHtml(wiki?.content_html ?? ""),
-    [wiki?.content_html],
-  );
+  const parsed = useMemo(() => parseDocContent(wiki?.content_html ?? ""), [wiki?.content_html]);
+  const safeHtml = useMemo(() => renderRichHtml(wiki?.content_html ?? ""), [wiki?.content_html]);
+  const tone = resolveForegroundTheme({
+    wallpaperId: wiki?.wallpaper_id,
+    backgroundColor: parsed.backgroundColor,
+    uiTheme: wiki?.ui_theme,
+  });
+  const darkMode = tone === "light";
+  const surfaceClass = darkMode
+    ? "border-white/20 bg-black/35 backdrop-blur-sm"
+    : "bg-background/85";
 
   if (loading) {
-    return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
-        <AppPageSkeleton compact />
-      </div>
-    );
+    return <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8"><AppPageSkeleton compact /></div>;
   }
 
   if (!wiki) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Wiki não encontrada</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <div>Essa wiki pode ter sido removida ou você não tem acesso.</div>
-            <Button
-              variant="secondary"
-              className="w-full rounded-2xl"
-              onClick={() => router.push("/app/wiki")}
-            >
-              Voltar para Wiki
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8">
+        <div className="mx-auto w-full max-w-5xl">
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader><CardTitle className="text-base">Wiki não encontrada</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div>Essa wiki pode ter sido removida ou você não tem acesso.</div>
+              <Button variant="secondary" className="w-full rounded-2xl" onClick={() => router.push("/app/wiki")}>Voltar para Wiki</Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col gap-4 p-4">
-      {/* Top actions */}
-      <header className="flex items-center justify-between gap-2">
-        <Button
-          variant="secondary"
-          className="rounded-2xl shadow-sm"
-          onClick={() => router.push("/app/wiki")}
-        >
-          Voltar
-        </Button>
-
-        <div className="flex items-center gap-2">
-          {wiki.category_id ? (
-            <Button
-              variant="secondary"
-              className="rounded-2xl shadow-sm"
-              onClick={() =>
-                router.push(`/app/wiki/categories/${wiki.category_id}`)
-              }
-              title="Abrir pasta"
-            >
-              Pasta
-            </Button>
-          ) : null}
-
-          {canEdit ? (
-            <Button
-              className="rounded-2xl shadow-sm"
-              onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}
-            >
-              Editar
-            </Button>
-          ) : null}
-        </div>
-      </header>
-
-      {/* Cover + title */}
-      <div className="overflow-hidden rounded-2xl border bg-background">
-        <div className="relative aspect-[16/9] bg-muted">
-          {wiki.cover_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={wiki.cover_url}
-              alt={wiki.title}
-              className="h-full w-full object-cover"
-            />
-          ) : null}
-        </div>
-
-        <div className="p-4">
-          <div className="text-xs text-muted-foreground">
-            {wiki.wiki_categories?.name
-              ? `Pasta: ${wiki.wiki_categories.name}`
-              : "Sem pasta"}
+    <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className={`min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8 ${darkMode ? "text-white" : "text-foreground"}`}>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+        <header className="flex items-center justify-between gap-2">
+          <Button variant="secondary" className="rounded-2xl shadow-sm" onClick={() => router.push("/app/wiki")}>Voltar</Button>
+          <div className="flex items-center gap-2">
+            {wiki.category_id ? <Button variant="secondary" className="rounded-2xl shadow-sm" onClick={() => router.push(`/app/wiki/categories/${wiki.category_id}`)}>Pasta</Button> : null}
+            {canEdit ? <Button className="rounded-2xl shadow-sm" onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}>Editar</Button> : null}
           </div>
+        </header>
 
-          <h1 className="mt-1 text-lg font-semibold leading-snug">
-            {wiki.title}
-          </h1>
+        <div className={`overflow-hidden rounded-2xl border ${surfaceClass}`}>
+          <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="relative h-48 md:h-72 w-full">
+            {wiki.cover_url ? <img src={wiki.cover_url} alt={wiki.title} className="h-full w-full object-cover" /> : null}
+          </WallpaperBackground>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>
-              Atualizado em {new Date(wiki.updated_at).toLocaleString("pt-BR")}
-            </span>
-            <span>•</span>
-            <span>Por {wiki.personas?.name ?? "Persona"}</span>
-          </div>
-
-          <div className="mt-3">
-            <HighlightButtonGroup
-              targetType="wiki"
-              targetId={wiki.id}
-              title={wiki.title}
-              coverUrl={wiki.cover_url}
-            />
+          <div className="p-4 md:p-6">
+            <div className="text-xs text-muted-foreground">{wiki.wiki_categories?.name ? `Pasta: ${wiki.wiki_categories.name}` : "Sem pasta"}</div>
+            <h1 className="mt-1 text-2xl md:text-4xl font-semibold leading-snug">{wiki.title}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs md:text-sm text-muted-foreground">
+              <span>Atualizado em {new Date(wiki.updated_at).toLocaleString("pt-BR")}</span>
+              <span>•</span>
+              <span>Por {wiki.personas?.name ?? "Persona"}</span>
+            </div>
+            <div className="mt-3"><HighlightButtonGroup targetType="wiki" targetId={wiki.id} title={wiki.title} coverUrl={wiki.cover_url} /></div>
           </div>
         </div>
+
+        <Card className={`rounded-2xl shadow-sm ${surfaceClass}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Conteúdo</CardTitle></CardHeader>
+          <CardContent>
+            <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="rounded-xl border border-white/10 p-3 md:p-4">
+              <div
+                className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
+                dangerouslySetInnerHTML={{ __html: safeHtml }}
+              />
+            </WallpaperBackground>
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Content */}
-      <Card className="rounded-2xl shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Conteúdo</CardTitle>
-        </CardHeader>
-        <CardContent
-          className="prose max-w-none text-base leading-7 overflow-x-auto break-words"
-          dangerouslySetInnerHTML={{ __html: safeHtml }}
-        />
-      </Card>
-    </div>
+    </WallpaperBackground>
   );
 }

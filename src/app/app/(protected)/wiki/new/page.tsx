@@ -14,6 +14,9 @@ import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
 import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 
 type Category = { id: string; name: string; parent_id: string | null };
 
@@ -32,6 +35,7 @@ export default function NewWikiPage() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_DOC_BACKGROUND);
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -111,7 +115,7 @@ export default function NewWikiPage() {
   }
 
   async function createWiki() {
-    const sanitized = contentHtml.trim().replace(/<p>\s*<\/p>/g, "").replace(/<p><br><\/p>/g, "").trim();
+    const sanitized = contentHtml.trim();
     const contentWithBg = buildDocContent({
       bodyHtml: sanitized,
       backgroundColor,
@@ -119,10 +123,10 @@ export default function NewWikiPage() {
 
     if (!activePersona) return toast.error("Selecione uma persona.");
     if (!title.trim()) return toast.error("Título é obrigatório.");
-    if (!sanitized) return toast.error("Escreva o conteúdo da wiki.");
+    if (isRichHtmlEmpty(sanitized)) return toast.error("Escreva o conteúdo da wiki.");
 
     setSaving(true);
-    const { data, error } = await supabase
+    let createRes = await supabase
       .from("wiki_pages")
       .insert({
         created_by_persona_id: activePersona.id,
@@ -130,16 +134,31 @@ export default function NewWikiPage() {
         title: title.trim(),
         cover_url: coverUrl,
         content_html: contentWithBg,
+        wallpaper_id: wallpaperId,
       })
       .select("id")
       .single();
 
+    if (isMissingColumnError(createRes.error, "wallpaper_id")) {
+      createRes = await supabase
+        .from("wiki_pages")
+        .insert({
+          created_by_persona_id: activePersona.id,
+          category_id: categoryId,
+          title: title.trim(),
+          cover_url: coverUrl,
+          content_html: contentWithBg,
+        })
+        .select("id")
+        .single();
+    }
+
     setSaving(false);
-    if (error) return toast.error(error.message);
+    if (createRes.error) return toast.error(createRes.error.message);
 
     await drafts.discard();
     toast.success("Wiki criada!");
-    location.href = data?.id ? `/app/wiki/${data.id}` : "/app/wiki";
+    location.href = createRes.data?.id ? `/app/wiki/${createRes.data.id}` : "/app/wiki";
   }
 
   return (
@@ -202,6 +221,8 @@ export default function NewWikiPage() {
           </select>
 
           <BackgroundPresetPicker value={backgroundColor} onChange={setBackgroundColor} />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper da wiki" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
           <RichTextEditor
