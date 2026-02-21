@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,7 @@ type Post = {
 };
 
 export default function FeedPage() {
+  const router = useRouter();
   const { activePersona } = useActivePersona();
 
   const [loading, setLoading] = useState(true);
@@ -142,7 +144,7 @@ export default function FeedPage() {
           <Button
             variant="secondary"
             className="rounded-2xl"
-            onClick={() => (location.href = "/app/drafts")}
+            onClick={() => router.push("/app/drafts")}
           >
             Rascunhos
           </Button>
@@ -160,7 +162,7 @@ export default function FeedPage() {
 
           <Button
             className="rounded-2xl"
-            onClick={() => (location.href = "/app/feed/new")}
+            onClick={() => router.push("/app/feed/new")}
             disabled={!activePersona}
           >
             Novo
@@ -221,9 +223,11 @@ export default function FeedPage() {
                       type="button"
                       className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
                       onClick={() => {
-                        location.href = isWiki
-                          ? `/app/wiki/${item.target_id}`
-                          : `/app/post/${item.target_id}`;
+                        router.push(
+                          isWiki
+                            ? `/app/wiki/${item.target_id}`
+                            : `/app/post/${item.target_id}`,
+                        );
                       }}
                     >
                       <div className="flex h-full flex-col">
@@ -275,7 +279,7 @@ export default function FeedPage() {
             <Card
               key={p.id}
               className="cursor-pointer rounded-2xl"
-              onClick={() => (location.href = `/app/post/${p.id}`)}
+              onClick={() => router.push(`/app/post/${p.id}`)}
             >
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">{p.persona.name}</CardTitle>

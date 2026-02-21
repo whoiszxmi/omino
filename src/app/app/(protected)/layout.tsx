@@ -3,7 +3,10 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useActivePersona } from "@/lib/persona/useActivePersona";
+import {
+  ActivePersonaProvider,
+  useActivePersona,
+} from "@/lib/persona/ActivePersonaContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CreateChooser } from "@/components/app/CreateChooser";
@@ -13,7 +16,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import Bootstrap from "./Bootstrap";
 import {
@@ -42,7 +44,8 @@ function isActive(pathname: string, href: string) {
 
 type Action = { label: string; href: string; requiresPersona?: boolean } | null;
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+// Layout interno (já dentro do Provider)
+function AppLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/app";
   const router = useRouter();
 
@@ -54,26 +57,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const { title, action }: { title: string; action: Action } = useMemo(() => {
-    if (pathname.startsWith("/app/feed")) {
+    if (pathname.startsWith("/app/feed"))
       return {
         title: "Feed",
         action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
       };
-    }
     if (pathname.startsWith("/app/chats"))
       return { title: "Chats", action: null };
-    if (pathname.startsWith("/app/wiki/categories")) {
+    if (pathname.startsWith("/app/wiki/categories"))
       return {
         title: "Categorias",
         action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
       };
-    }
-    if (pathname.startsWith("/app/wiki")) {
+    if (pathname.startsWith("/app/wiki"))
       return {
         title: "Wiki",
         action: { label: "Nova", href: "/app/wiki/new", requiresPersona: true },
       };
-    }
     if (pathname.startsWith("/app/highlights"))
       return { title: "Destaques", action: null };
     if (pathname.startsWith("/app/personas"))
@@ -82,7 +82,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return { title: "Perfil", action: null };
     if (pathname.startsWith("/app/drafts"))
       return { title: "Rascunhos", action: null };
-
     return {
       title: "Feed",
       action: { label: "Novo", href: "/app/feed/new", requiresPersona: true },
@@ -146,7 +145,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     Comunidade
                   </div>
                 </div>
-
                 <Button
                   size="sm"
                   variant="secondary"
@@ -169,7 +167,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       ? activePersona.name
                       : "Sem persona"}
                 </div>
-
                 <div className="mt-3 flex flex-col gap-2">
                   <Button
                     variant="secondary"
@@ -178,7 +175,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     Trocar persona
                   </Button>
-
                   <Button
                     className="w-full rounded-2xl"
                     onClick={() => setCreateOpen(true)}
@@ -188,7 +184,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <Plus className="mr-2 h-4 w-4" />
                     Criar
                   </Button>
-
                   {action ? (
                     <Button
                       variant="secondary"
@@ -200,7 +195,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       {action.label}
                     </Button>
                   ) : null}
-
                   {!activePersona ? (
                     <div className="text-[11px] text-muted-foreground">
                       Selecione uma persona para postar/criar wiki.
@@ -217,7 +211,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Main column */}
           <div className="flex min-w-0 flex-1 flex-col">
-            {/* Mobile top bar + drawer */}
+            {/* Mobile top bar */}
             <header className="sticky top-0 z-20 border-b bg-background/85 backdrop-blur md:hidden">
               <div className="flex items-center gap-2 px-4 py-3">
                 <Button
@@ -225,30 +219,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   variant="secondary"
                   className="rounded-2xl"
                   onClick={() => setMobileNavOpen(true)}
-                  title="Menu"
                 >
                   <Menu className="h-4 w-4" />
                 </Button>
-
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-semibold">
                     {title}
                   </div>
                   <div className="truncate text-[11px] text-muted-foreground">
                     {loading
-                      ? "Carregando persona..."
+                      ? "Carregando..."
                       : activePersona
                         ? `Usando: ${activePersona.name}`
                         : "Sem persona"}
                   </div>
                 </div>
-
                 <Button
                   size="sm"
                   variant="secondary"
                   className="rounded-2xl"
                   onClick={() => router.push("/app/profile")}
-                  title="Perfil"
                 >
                   <UserRound className="h-4 w-4" />
                 </Button>
@@ -262,13 +252,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <div className="truncate text-xl font-semibold">{title}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {loading
-                      ? "Carregando persona..."
+                      ? "Carregando..."
                       : activePersona
                         ? `Usando: ${activePersona.name}`
                         : "Sem persona"}
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2">
                   {action ? (
                     <Button
@@ -280,7 +269,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       {action.label}
                     </Button>
                   ) : null}
-
                   <Button
                     variant="secondary"
                     className="rounded-2xl"
@@ -288,12 +276,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     Trocar persona
                   </Button>
-
                   <Button
                     className="rounded-2xl"
                     onClick={() => setCreateOpen(true)}
                     disabled={!activePersona}
-                    title={!activePersona ? "Selecione uma persona" : "Criar"}
                   >
                     <Plus className="mr-2 h-4 w-4" />
                     Criar
@@ -308,7 +294,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Mobile Drawer (usando Dialog como sheet simples) */}
+        {/* Mobile Drawer */}
         <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
           <DialogContent className="rounded-2xl p-0">
             <div className="border-b p-4">
@@ -321,10 +307,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     : "Sem persona"}
               </div>
             </div>
-
             <div className="space-y-3 p-4">
               <SidebarNav onNavigate={() => setMobileNavOpen(false)} />
-
               <div className="rounded-2xl border p-3">
                 <div className="text-xs text-muted-foreground">Ações</div>
                 <div className="mt-2 grid gap-2">
@@ -338,7 +322,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     Trocar persona
                   </Button>
-
                   <Button
                     className="w-full rounded-2xl"
                     onClick={() => {
@@ -350,7 +333,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <Plus className="mr-2 h-4 w-4" />
                     Criar
                   </Button>
-
                   {action ? (
                     <Button
                       variant="secondary"
@@ -371,19 +353,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </DialogContent>
         </Dialog>
 
-        {/* Persona chooser dialog (usado no desktop e mobile) */}
+        {/* Persona chooser */}
         <Dialog open={personaDialogOpen} onOpenChange={setPersonaDialogOpen}>
           <DialogContent className="rounded-2xl">
             <DialogHeader>
               <DialogTitle>Escolher persona</DialogTitle>
             </DialogHeader>
-
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
-
             <div className="space-y-2">
               {personas.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Você ainda não tem personas. Crie em /app/personas.
+                  Você ainda não tem personas.{" "}
+                  <button
+                    className="underline"
+                    onClick={() => {
+                      setPersonaDialogOpen(false);
+                      router.push("/app/personas");
+                    }}
+                  >
+                    Criar agora
+                  </button>
                 </p>
               ) : (
                 personas.map((p) => (
@@ -391,7 +380,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">
-                          {p.name} {activePersona?.id === p.id ? "• ativa" : ""}
+                          {p.name}
+                          {activePersona?.id === p.id ? " • ativa" : ""}
                         </div>
                         {p.bio ? (
                           <div className="truncate text-xs text-muted-foreground">
@@ -399,7 +389,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                           </div>
                         ) : null}
                       </div>
-
                       <Button
                         size="sm"
                         className="rounded-2xl"
@@ -407,13 +396,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                           activePersona?.id === p.id ? "secondary" : "default"
                         }
                         onClick={async () => {
-                          try {
-                            await setActivePersona(p.id);
-                            setPersonaDialogOpen(false);
-                            router.refresh();
-                          } catch {
-                            // estado de erro já é tratado no hook
-                          }
+                          await setActivePersona(p.id);
+                          setPersonaDialogOpen(false);
                         }}
                       >
                         {activePersona?.id === p.id ? "Ok" : "Usar"}
@@ -426,7 +410,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </DialogContent>
         </Dialog>
 
-        {/* Create chooser (mantém seu fluxo existente) */}
         <CreateChooser
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -434,5 +417,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         />
       </div>
     </AllowlistGuard>
+  );
+}
+
+// Wrapper que injeta o Provider — todas as páginas filhas recebem o Context
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ActivePersonaProvider>
+      <AppLayoutInner>{children}</AppLayoutInner>
+    </ActivePersonaProvider>
   );
 }

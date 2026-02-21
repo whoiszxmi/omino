@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { buildDocContent, DEFAULT_DOC_BACKGROUND } from "@/lib/content/docMeta";
@@ -13,23 +14,9 @@ import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
-import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
-import WallpaperPicker from "@/components/editor/WallpaperPicker";
-
-// ✅ resolve “missing column” do PostgREST (42703)
-function isMissingColumnError(err: unknown, column: string) {
-  if (!err || typeof err !== "object") return false;
-  const anyErr = err as any;
-  const code = String(anyErr.code ?? "");
-  const message = String(anyErr.message ?? "").toLowerCase();
-  const details = String(anyErr.details ?? "").toLowerCase();
-  const col = column.toLowerCase();
-
-  const mentions = message.includes(col) || details.includes(col);
-  return code === "42703" || (mentions && message.includes("does not exist"));
-}
 
 export default function NewPostPage() {
+  const router = useRouter();
   const { activePersona } = useActivePersona();
 
   const [title, setTitle] = useState("");
@@ -37,7 +24,6 @@ export default function NewPostPage() {
   const [backgroundColor, setBackgroundColor] = useState<string>(
     DEFAULT_DOC_BACKGROUND,
   );
-  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const initialDraft = useMemo(
@@ -61,98 +47,34 @@ export default function NewPostPage() {
 
   async function createPost() {
     const html = contentHtml.trim();
-
     if (!title.trim()) {
       toast.error("Título é obrigatório.");
       return;
     }
-
-    if (isRichHtmlEmpty(html)) {
-      toast.error("Escreva algo antes de publicar.");
-      return;
-    }
-
+    if (!html || html === "<p></p>") return;
     if (!activePersona) {
       toast.error("Selecione uma persona antes de postar.");
       return;
     }
 
     setSaving(true);
-    try {
-      const payload = buildDocContent({
-        title,
-        bodyHtml: html,
-        backgroundColor,
-      });
-      const uiThemePayload = {
-        background: wallpaperId
-          ? { kind: "wallpaper", value: wallpaperId }
-          : { kind: "solid", value: backgroundColor },
-        foreground: "auto",
-      };
 
-      // ✅ tenta com colunas novas; se o banco não tiver, cai em fallback
-      let res = await supabase
-        .from("posts")
-        .insert({
-          persona_id: activePersona.id,
-          content: payload,
-          wallpaper_id: wallpaperId,
-          // se seu schema já tiver ui_theme, ótimo; se não tiver, faremos fallback
-          ui_theme: uiThemePayload,
-        } as any)
-        .select("id")
-        .maybeSingle();
+    const payload = buildDocContent({ title, bodyHtml: html, backgroundColor });
+    const { error } = await supabase.from("posts").insert({
+      persona_id: activePersona.id,
+      content: payload,
+    });
 
-      // fallback: remove wallpaper_id
-      if (res.error && isMissingColumnError(res.error, "wallpaper_id")) {
-        res = await supabase
-          .from("posts")
-          .insert({
-            persona_id: activePersona.id,
-            content: payload,
-            ui_theme: uiThemePayload,
-          } as any)
-          .select("id")
-          .maybeSingle();
-      }
+    setSaving(false);
 
-      // fallback: remove ui_theme também (erro “posts.ui_theme does not exist”)
-      if (res.error && isMissingColumnError(res.error, "ui_theme")) {
-        res = await supabase
-          .from("posts")
-          .insert({
-            persona_id: activePersona.id,
-            content: payload,
-            wallpaper_id: wallpaperId,
-          } as any)
-          .select("id")
-          .maybeSingle();
-
-        // fallback final: só payload básico
-        if (res.error && isMissingColumnError(res.error, "wallpaper_id")) {
-          res = await supabase
-            .from("posts")
-            .insert({
-              persona_id: activePersona.id,
-              content: payload,
-            })
-            .select("id")
-            .maybeSingle();
-        }
-      }
-
-      if (res.error) {
-        toast.error(res.error.message);
-        return;
-      }
-
-      await drafts.discard();
-      toast.success("Post publicado!");
-      location.href = "/app/feed";
-    } finally {
-      setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
     }
+
+    await drafts.discard();
+    toast.success("Post publicado!");
+    router.push("/app/feed");
   }
 
   return (
@@ -162,7 +84,7 @@ export default function NewPostPage() {
         <Button
           variant="secondary"
           className="rounded-2xl"
-          onClick={() => (location.href = "/app/feed")}
+          onClick={() => router.push("/app/feed")}
         >
           Voltar
         </Button>
@@ -181,25 +103,16 @@ export default function NewPostPage() {
             Postando como: {activePersona?.name ?? "—"}
           </CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-3">
           <Input
             placeholder="Título do post"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(e) => setTitle(e.target.value)}
           />
-
           <BackgroundPresetPicker
             value={backgroundColor}
             onChange={setBackgroundColor}
           />
-
-          <WallpaperPicker
-            value={wallpaperId}
-            onChange={setWallpaperId}
-            label="Wallpaper do post"
-          />
-
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor
               valueHtml={contentHtml}
@@ -210,7 +123,6 @@ export default function NewPostPage() {
               enableTables={false}
             />
           </div>
-
           <Button
             className="w-full rounded-2xl"
             onClick={() => void createPost()}
@@ -218,7 +130,8 @@ export default function NewPostPage() {
               saving ||
               !activePersona ||
               !title.trim() ||
-              isRichHtmlEmpty(contentHtml)
+              !contentHtml.trim() ||
+              contentHtml.trim() === "<p></p>"
             }
           >
             {saving ? "Publicando..." : "Publicar"}

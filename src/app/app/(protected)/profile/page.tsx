@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { renderRichHtml } from "@/lib/render/richText";
-import { parseDocContent } from "@/lib/content/docMeta";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { getMyHighlights, type Highlight } from "@/lib/highlights/highlights";
 import ProfileWikisGrid from "@/components/profile/ProfileWikisGrid";
@@ -32,6 +32,7 @@ type PostRow = {
 
 export default function ProfilePage() {
   const { activePersona } = useActivePersona();
+  const router = useRouter();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,7 +142,8 @@ export default function ProfilePage() {
 
     if (!user) {
       setLoading(false);
-      location.href = "/app/login";
+      router.replace("/app/login");
+      return;
       return;
     }
 
@@ -189,41 +191,8 @@ export default function ProfilePage() {
 
     // highlights
     setHighlightsLoading(true);
-    const highlightsData = await getMyHighlights("profile");
-
-    const postIds = highlightsData
-      .filter((item) => item.target_type === "post")
-      .map((item) => item.target_id);
-    let postTitles = new Map<string, string>();
-
-    if (postIds.length > 0) {
-      const { data: postRows } = await supabase
-        .from("posts")
-        .select("id,content")
-        .in("id", postIds);
-
-      postTitles = new Map(
-        (postRows ?? []).map((row: any) => {
-          const parsed = parseDocContent((row.content as string) ?? "");
-          return [row.id as string, parsed.title?.trim() || "Post"];
-        }),
-      );
-    }
-
-    const normalizedHighlights = highlightsData.map((item) =>
-      item.target_type === "post"
-        ? {
-            ...item,
-            title:
-              postTitles.get(item.target_id) ||
-              (item.title && !item.title.toLowerCase().startsWith("post de")
-                ? item.title.trim()
-                : "Post"),
-          }
-        : item,
-    );
-
-    setHighlights(normalizedHighlights);
+    const Highlights = await getMyHighlights("profile");
+    setHighlights(Highlights);
     setHighlightsLoading(false);
 
     setLoading(false);
@@ -268,7 +237,7 @@ export default function ProfilePage() {
               <Button
                 variant="secondary"
                 className="rounded-2xl"
-                onClick={() => (location.href = "/app/profile/edit")}
+                onClick={() => router.push("/app/profile/edit")}
               >
                 Editar
               </Button>
@@ -357,7 +326,7 @@ export default function ProfilePage() {
                         size="sm"
                         variant="secondary"
                         className="ml-auto rounded-2xl"
-                        onClick={() => (location.href = "/app/personas")}
+                        onClick={() => router.push("/app/personas")}
                       >
                         Trocar
                       </Button>
@@ -369,7 +338,7 @@ export default function ProfilePage() {
                         size="sm"
                         variant="secondary"
                         className="ml-2 rounded-2xl"
-                        onClick={() => (location.href = "/app/personas")}
+                        onClick={() => router.push("/app/personas")}
                       >
                         Selecionar
                       </Button>
@@ -380,7 +349,7 @@ export default function ProfilePage() {
                 <div className="mt-3 flex items-center gap-2 text-xs">
                   <button
                     className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                    onClick={() => (location.href = "/app/profile/followers")}
+                    onClick={() => router.push("/app/profile/followers")}
                     type="button"
                   >
                     <b className="text-foreground">{followers}</b> seguidores
@@ -388,7 +357,7 @@ export default function ProfilePage() {
 
                   <button
                     className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                    onClick={() => (location.href = "/app/profile/following")}
+                    onClick={() => router.push("/app/profile/following")}
                     type="button"
                   >
                     <b className="text-foreground">{following}</b> seguindo
@@ -457,9 +426,11 @@ export default function ProfilePage() {
                           type="button"
                           className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
                           onClick={() => {
-                            location.href = isWiki
-                              ? `/app/wiki/${item.target_id}`
-                              : `/app/post/${item.target_id}`;
+                            router.push(
+                              isWiki
+                                ? `/app/wiki/${item.target_id}`
+                                : `/app/post/${item.target_id}`,
+                            );
                           }}
                         >
                           <div className="flex h-full flex-col">
@@ -497,7 +468,7 @@ export default function ProfilePage() {
                   size="sm"
                   variant="secondary"
                   className="rounded-2xl"
-                  onClick={() => (location.href = "/app/feed/new")}
+                  onClick={() => router.push("/app/feed/new")}
                   disabled={!activePersona}
                 >
                   Novo
@@ -521,7 +492,7 @@ export default function ProfilePage() {
                         <button
                           className="rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted/60"
                           type="button"
-                          onClick={() => (location.href = `/app/post/${p.id}`)}
+                          onClick={() => router.push(`/app/post/${p.id}`)}
                         >
                           Abrir
                         </button>
@@ -538,7 +509,7 @@ export default function ProfilePage() {
                         <HighlightButtonGroup
                           targetType="post"
                           targetId={p.id}
-                          title={parseDocContent(p.content ?? "").title?.trim() || "Post"}
+                          title={`Post de ${p.personas?.name ?? "Persona"}`}
                           onToggle={handleHighlightToggle}
                         />
                       </div>

@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-type Folder = {
-  id: string;
-  name: string;
-  parent_id: string | null;
-};
-
+type Folder = { id: string; name: string; parent_id: string | null };
 type Wiki = {
   id: string;
   title: string;
@@ -22,6 +18,7 @@ type Wiki = {
 
 export default function WikiFolderPage({ params }: { params: { id: string } }) {
   const folderId = params.id;
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [folder, setFolder] = useState<Folder | null>(null);
@@ -35,7 +32,7 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
     const user = userData.user;
     if (!user) {
       setLoading(false);
-      location.href = "/app/login";
+      router.replace("/app/login");
       return;
     }
 
@@ -45,7 +42,6 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
         .select("id, name, parent_id")
         .eq("id", folderId)
         .maybeSingle(),
-
       supabase
         .from("wiki_folders")
         .select("id, name, parent_id")
@@ -53,7 +49,6 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
         .eq("parent_id", folderId)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
-
       supabase
         .from("wikis")
         .select("id, title, summary, cover_url, updated_at, folder_id")
@@ -67,15 +62,15 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
     if (subsRes.error) console.error(subsRes.error);
     if (wRes.error) console.error(wRes.error);
 
-    setFolder((folderRes.data ?? null) as any);
-    setSubfolders((subsRes.data ?? []) as any);
-    setWikis((wRes.data ?? []) as any);
-
+    setFolder((folderRes.data ?? null) as Folder | null);
+    setSubfolders((subsRes.data ?? []) as Folder[]);
+    setWikis((wRes.data ?? []) as Wiki[]);
     setLoading(false);
   }
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderId]);
 
   return (
@@ -87,18 +82,17 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
           </h1>
           <p className="text-xs text-muted-foreground">Organização da Wiki</p>
         </div>
-
         <div className="flex gap-2">
           <Button
             variant="secondary"
             className="rounded-2xl"
-            onClick={() => history.back()}
+            onClick={() => router.back()}
           >
             Voltar
           </Button>
           <Button
             className="rounded-2xl"
-            onClick={() => (location.href = `/app/wiki/new?folder=${folderId}`)}
+            onClick={() => router.push(`/app/wiki/new?folder=${folderId}`)}
           >
             Nova
           </Button>
@@ -117,7 +111,7 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
                   <button
                     key={f.id}
                     className="rounded-2xl border bg-background p-3 text-left hover:bg-muted/30"
-                    onClick={() => (location.href = `/app/wiki/folder/${f.id}`)}
+                    onClick={() => router.push(`/app/wiki/folder/${f.id}`)}
                     type="button"
                   >
                     <div className="text-sm font-medium line-clamp-2">
@@ -149,7 +143,7 @@ export default function WikiFolderPage({ params }: { params: { id: string } }) {
                 <button
                   key={w.id}
                   className="overflow-hidden rounded-2xl border bg-background text-left hover:bg-muted/30"
-                  onClick={() => (location.href = `/app/wiki/${w.id}`)}
+                  onClick={() => router.push(`/app/wiki/${w.id}`)}
                   type="button"
                 >
                   <div className="aspect-square bg-muted">

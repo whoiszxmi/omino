@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { uploadPublicImage } from "@/lib/storage/uploadPublicImage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,9 +29,9 @@ function slugifyUsername(s: string) {
 }
 
 export default function EditProfilePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
   const [profile, setProfile] = useState<Profile | null>(null);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -38,7 +39,6 @@ export default function EditProfilePage() {
 
   async function load() {
     setLoading(true);
-
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
     if (!user) {
@@ -53,13 +53,12 @@ export default function EditProfilePage() {
       .maybeSingle();
 
     if (error) {
-      console.error(error);
       toast.error(error.message);
       setLoading(false);
       return;
     }
 
-    const p = (data ?? null) as any;
+    const p = data as Profile | null;
     setProfile(p);
     setUsername(p?.username ?? "");
     setDisplayName(p?.display_name ?? "");
@@ -69,19 +68,19 @@ export default function EditProfilePage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save() {
     if (!profile) return;
-
     const u = slugifyUsername(username);
     if (u && u.length < 3) {
-      toast.error("Username deve ter pelo menos 3 caracteres (ou deixe vazio).");
+      toast.error(
+        "Username deve ter pelo menos 3 caracteres (ou deixe vazio).",
+      );
       return;
     }
 
     setSaving(true);
-
     const { error } = await supabase
       .from("profiles")
       .update({
@@ -90,17 +89,14 @@ export default function EditProfilePage() {
         bio: bio.trim() || null,
       })
       .eq("id", profile.id);
-
     setSaving(false);
 
     if (error) {
-      console.error(error);
       toast.error(error.message);
       return;
     }
-
     toast.success("Perfil atualizado!");
-    location.href = "/app/profile";
+    router.push("/app/profile");
   }
 
   async function pickAvatar(file: File) {
@@ -132,7 +128,7 @@ export default function EditProfilePage() {
         <Button
           variant="secondary"
           className="rounded-2xl"
-          onClick={() => (location.href = "/app/profile")}
+          onClick={() => router.push("/app/profile")}
         >
           Voltar
         </Button>
@@ -174,7 +170,6 @@ export default function EditProfilePage() {
                   </div>
                 </div>
               </div>
-
               <div className="flex gap-2">
                 <label className="flex-1">
                   <input
@@ -188,17 +183,23 @@ export default function EditProfilePage() {
                       try {
                         await pickAvatar(f);
                         toast.success("Avatar atualizado!");
-                      } catch (err: any) {
-                        console.error(err);
-                        toast.error(err?.message ?? "Falha no upload");
+                      } catch (err: unknown) {
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Falha no upload",
+                        );
                       }
                     }}
                   />
-                  <Button type="button" className="w-full rounded-2xl" variant="secondary">
+                  <Button
+                    type="button"
+                    className="w-full rounded-2xl"
+                    variant="secondary"
+                  >
                     Trocar avatar
                   </Button>
                 </label>
-
                 <label className="flex-1">
                   <input
                     type="file"
@@ -211,13 +212,20 @@ export default function EditProfilePage() {
                       try {
                         await pickBanner(f);
                         toast.success("Capa atualizada!");
-                      } catch (err: any) {
-                        console.error(err);
-                        toast.error(err?.message ?? "Falha no upload");
+                      } catch (err: unknown) {
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Falha no upload",
+                        );
                       }
                     }}
                   />
-                  <Button type="button" className="w-full rounded-2xl" variant="secondary">
+                  <Button
+                    type="button"
+                    className="w-full rounded-2xl"
+                    variant="secondary"
+                  >
                     Trocar capa
                   </Button>
                 </label>
@@ -241,16 +249,16 @@ export default function EditProfilePage() {
                   Só letras/números/_ • até 24 chars • pode deixar vazio
                 </div>
               </div>
-
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Nome exibido</div>
+                <div className="text-xs text-muted-foreground">
+                  Nome exibido
+                </div>
                 <Input
                   placeholder="Seu nome público"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                 />
               </div>
-
               <div className="space-y-1">
                 <div className="text-xs text-muted-foreground">Bio</div>
                 <Textarea
@@ -259,8 +267,11 @@ export default function EditProfilePage() {
                   onChange={(e) => setBio(e.target.value)}
                 />
               </div>
-
-              <Button className="w-full rounded-2xl" onClick={save} disabled={saving}>
+              <Button
+                className="w-full rounded-2xl"
+                onClick={save}
+                disabled={saving}
+              >
                 {saving ? "Salvando..." : "Salvar"}
               </Button>
             </CardContent>

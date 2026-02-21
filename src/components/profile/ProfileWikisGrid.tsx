@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,17 +15,15 @@ type Wiki = {
   category_id: string | null;
 };
 
-type Props = {
-  personaId: string | null; // persona ativa
-};
+type Props = { personaId: string | null };
 
 export default function ProfileWikisGrid({ personaId }: Props) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [wikis, setWikis] = useState<Wiki[]>([]);
 
   async function load() {
     setLoading(true);
-
     if (!personaId) {
       setWikis([]);
       setLoading(false);
@@ -45,8 +44,7 @@ export default function ProfileWikisGrid({ personaId }: Props) {
       setLoading(false);
       return;
     }
-
-    setWikis((data ?? []) as any);
+    setWikis((data ?? []) as Wiki[]);
     setLoading(false);
   }
 
@@ -54,8 +52,6 @@ export default function ProfileWikisGrid({ personaId }: Props) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personaId]);
-
-  const empty = !loading && wikis.length === 0;
 
   return (
     <Card className="rounded-2xl">
@@ -66,12 +62,11 @@ export default function ProfileWikisGrid({ personaId }: Props) {
             Criadas por esta persona
           </div>
         </div>
-
         <Button
           className="rounded-2xl"
           size="sm"
           disabled={!personaId}
-          onClick={() => (location.href = "/app/wiki/new")}
+          onClick={() => router.push("/app/wiki/new")}
         >
           Nova
         </Button>
@@ -80,7 +75,7 @@ export default function ProfileWikisGrid({ personaId }: Props) {
       <CardContent>
         {loading ? (
           <div className="text-sm text-muted-foreground">Carregando...</div>
-        ) : empty ? (
+        ) : wikis.length === 0 ? (
           <div className="text-sm text-muted-foreground">
             Nenhuma wiki ainda. Crie a primeira em <b>Nova</b>.
           </div>
@@ -91,7 +86,7 @@ export default function ProfileWikisGrid({ personaId }: Props) {
                 key={w.id}
                 type="button"
                 className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
-                onClick={() => (location.href = `/app/wiki/${w.id}`)}
+                onClick={() => router.push(`/app/wiki/${w.id}`)}
                 title={w.title}
               >
                 <div className="flex h-full flex-col">

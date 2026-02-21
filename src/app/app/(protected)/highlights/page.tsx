@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card } from "@/components/ui/card";
 import {
@@ -12,6 +13,7 @@ import {
 type FilterType = "all" | HighlightTargetType;
 
 export default function HighlightsPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [filter, setFilter] = useState<FilterType>("all");
@@ -103,9 +105,11 @@ export default function HighlightsPage() {
                 type="button"
                 className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
                 onClick={() => {
-                  location.href = isWiki
-                    ? `/app/wiki/${item.target_id}`
-                    : `/app/post/${item.target_id}`;
+                  router.push(
+                    isWiki
+                      ? `/app/wiki/${item.target_id}`
+                      : `/app/post/${item.target_id}`,
+                  );
                 }}
               >
                 <div className="flex h-full flex-col">
