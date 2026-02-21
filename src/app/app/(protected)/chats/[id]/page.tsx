@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { renderRichHtml } from "@/lib/render/richText";
 import UserCardModal from "@/components/profile/UserCardModal";
 import { X } from "lucide-react";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
 type UiMessage = {
   id: string;
@@ -56,10 +58,17 @@ type ReplyDraft = {
   preview: string;
 };
 
+type ReplyLookup = {
+  id: string;
+  author: string;
+  preview: string;
+};
+
 type TypingPresence = {
   typing: boolean;
   personaId: string;
   personaName: string;
+  ts: number;
 };
 
 function isUuid(v: string) {
@@ -80,6 +89,23 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
+// ✅ resolve “missing column” do PostgREST (42703) + mensagens típicas
+function isMissingColumnError(err: unknown, column: string) {
+  if (!err || typeof err !== "object") return false;
+  const anyErr = err as any;
+  const code = String(anyErr.code ?? "");
+  const message = String(anyErr.message ?? "").toLowerCase();
+  const details = String(anyErr.details ?? "").toLowerCase();
+
+  const col = column.toLowerCase();
+  const mentions =
+    message.includes(col) ||
+    details.includes(col) ||
+    message.includes("column");
+
+  return code === "42703" || (mentions && message.includes("does not exist"));
+}
+
 const PAGE_SIZE = 40;
 
 export default function ChatRoomPage() {
@@ -92,31 +118,50 @@ export default function ChatRoomPage() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [inputHtml, setInputHtml] = useState("");
   const [sending, setSending] = useState(false);
+
   const [chatTitle, setChatTitle] = useState("Chat");
-  const [hasReplyToIdColumn, setHasReplyToIdColumn] = useState(true);
+  const [chatWallpaperId, setChatWallpaperId] = useState<string | null>(null);
+
+  // ✅ “reply_to” pode não existir no banco -> fallback automático
+  const [hasReplyToColumn, setHasReplyToColumn] = useState(true);
 
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pendingNewCount, setPendingNewCount] = useState(0);
 
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  const [replyLookup, setReplyLookup] = useState<Record<string, ReplyLookup>>(
+    {},
+  );
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    string | null
+  >(null);
 
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingStopTimeoutRef = useRef<number | null>(null);
+  const typingTrackThrottleRef = useRef<number>(0);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
     null,
   );
 
+  const didInitialScrollRef = useRef(false);
+
   const listRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   function scrollToBottom(smooth = false) {
     const el = listRef.current;
     if (!el) return;
-    const next = el.scrollHeight;
-    el.scrollTo({ top: next, behavior: smooth ? "smooth" : "auto" });
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
     setPendingNewCount(0);
-    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function performInitialScroll() {
+    if (didInitialScrollRef.current) return;
+    didInitialScrollRef.current = true;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToBottom(false));
+    });
   }
 
   function isNearBottom() {
@@ -132,12 +177,16 @@ export default function ChatRoomPage() {
         rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
       ),
     );
+
     if (userIds.length === 0) return new Map<string, ProfileRow>();
+
     const profilesRes = await supabase
       .from("profiles")
       .select("id,username,display_name,avatar_url")
       .in("id", userIds);
+
     if (profilesRes.error) return new Map<string, ProfileRow>();
+
     return new Map(
       (profilesRes.data ?? []).map((p) => [p.id, p as ProfileRow]),
     );
@@ -150,6 +199,7 @@ export default function ChatRoomPage() {
     return rows.map((row) => {
       const uid = row.personas.user_id;
       const profile = uid ? profileMap.get(uid) : undefined;
+
       return {
         id: row.id,
         content: row.content,
@@ -169,24 +219,73 @@ export default function ChatRoomPage() {
     });
   }
 
+  async function selectMessages(
+    validChatId: string,
+    opts: { before?: string; limit: number },
+  ) {
+    const baseCols =
+      "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)";
+    const withReplyCols = `id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)`;
+
+    // tenta com reply_to se estiver habilitado
+    if (hasReplyToColumn) {
+      let q = supabase
+        .from("messages")
+        .select(withReplyCols)
+        .eq("chat_id", validChatId);
+
+      if (opts.before) q = q.lt("created_at", opts.before);
+
+      const res = await q
+        .order("created_at", { ascending: false })
+        .limit(opts.limit);
+
+      if (res.error && isMissingColumnError(res.error, "reply_to")) {
+        setHasReplyToColumn(false);
+      } else {
+        return res;
+      }
+    }
+
+    // fallback sem reply_to
+    let q2 = supabase
+      .from("messages")
+      .select(baseCols)
+      .eq("chat_id", validChatId);
+    if (opts.before) q2 = q2.lt("created_at", opts.before);
+    return q2.order("created_at", { ascending: false }).limit(opts.limit);
+  }
+
   async function loadInitial(validChatId: string) {
     setLoading(true);
     try {
-      const chatRes = await supabase
+      // chat title + wallpaper (fallback se coluna não existir)
+      let chatRes = await supabase
         .from("chats")
-        .select("title")
+        .select("title,wallpaper_id")
         .eq("id", validChatId)
         .maybeSingle();
-      if (chatRes.data?.title) setChatTitle(chatRes.data.title);
 
-      const res = await supabase
-        .from("messages")
-        .select(
-          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
-        )
-        .eq("chat_id", validChatId)
-        .order("created_at", { ascending: false })
-        .limit(PAGE_SIZE);
+      if (
+        chatRes.error &&
+        isMissingColumnError(chatRes.error, "wallpaper_id")
+      ) {
+        chatRes = await supabase
+          .from("chats")
+          .select("title")
+          .eq("id", validChatId)
+          .maybeSingle();
+      }
+
+      if (chatRes.data?.title) setChatTitle(chatRes.data.title);
+      setChatWallpaperId(
+        (chatRes.data as { wallpaper_id?: string | null } | null)
+          ?.wallpaper_id ?? null,
+      );
+
+      didInitialScrollRef.current = false;
+
+      const res = await selectMessages(validChatId, { limit: PAGE_SIZE });
 
       if (res.error) {
         toast.error(res.error.message);
@@ -200,8 +299,10 @@ export default function ChatRoomPage() {
       const mapped = mapRows(rows, profileMap).reverse();
 
       setMessages(mapped);
+      setReplyLookup({});
       setHasMore(rows.length === PAGE_SIZE);
-      setTimeout(() => scrollToBottom(false), 0);
+
+      performInitialScroll();
     } finally {
       setLoading(false);
     }
@@ -224,15 +325,11 @@ export default function ChatRoomPage() {
       const prevScrollTop = el?.scrollTop ?? 0;
 
       const oldest = messages[0];
-      const res = await supabase
-        .from("messages")
-        .select(
-          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
-        )
-        .eq("chat_id", chatId)
-        .lt("created_at", oldest.created_at)
-        .order("created_at", { ascending: false })
-        .limit(PAGE_SIZE);
+
+      const res = await selectMessages(chatId, {
+        before: oldest.created_at,
+        limit: PAGE_SIZE,
+      });
 
       if (res.error) {
         toast.error(res.error.message);
@@ -252,6 +349,7 @@ export default function ChatRoomPage() {
       setMessages((prev) => [...mapped, ...prev]);
       setHasMore(rows.length === PAGE_SIZE);
 
+      // mantém scroll no lugar
       setTimeout(() => {
         const nextEl = listRef.current;
         if (!nextEl) return;
@@ -264,38 +362,114 @@ export default function ChatRoomPage() {
   }
 
   async function fetchOneMessage(messageId: string): Promise<UiMessage | null> {
-    const res = await supabase
+    const baseCols =
+      "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)";
+    const withReplyCols =
+      "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)";
+
+    // tenta com reply_to primeiro se suportado
+    if (hasReplyToColumn) {
+      const res = await supabase
+        .from("messages")
+        .select(withReplyCols)
+        .eq("id", messageId)
+        .maybeSingle();
+
+      if (res.error && isMissingColumnError(res.error, "reply_to")) {
+        setHasReplyToColumn(false);
+      } else if (!res.error && res.data) {
+        const row = res.data as unknown as MessageRow;
+        const profileMap = await fetchProfilesMap([row]);
+        return mapRows([row], profileMap)[0] ?? null;
+      }
+    }
+
+    // fallback sem reply_to
+    const res2 = await supabase
       .from("messages")
-      .select(
-        "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
-      )
+      .select(baseCols)
       .eq("id", messageId)
       .maybeSingle();
 
-    if (res.error || !res.data) return null;
+    if (res2.error || !res2.data) return null;
 
-    const row = res.data as unknown as MessageRow;
-    const profileMap = await fetchProfilesMap([row]);
-    return mapRows([row], profileMap)[0] ?? null;
+    const row2 = res2.data as unknown as MessageRow;
+    const profileMap2 = await fetchProfilesMap([row2]);
+    return mapRows([row2], profileMap2)[0] ?? null;
+  }
+
+  function jumpToMessage(messageId: string) {
+    const container = listRef.current;
+    if (!container) return;
+    const target = container.querySelector<HTMLElement>(
+      `[data-message-id="${messageId}"]`,
+    );
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMessageId((curr) => (curr === messageId ? null : curr));
+    }, 1500);
+  }
+
+  async function resolveReplyMessage(replyId: string) {
+    const existing = messages.find((m) => m.id === replyId);
+    if (existing) {
+      const author = existing.persona.display_name ?? existing.persona.name;
+      const preview = htmlToPlainText(existing.content).slice(0, 100);
+      setReplyLookup((prev) => ({
+        ...prev,
+        [replyId]: { id: replyId, author, preview },
+      }));
+      jumpToMessage(replyId);
+      return;
+    }
+
+    if (replyLookup[replyId]) {
+      toast.message("Mensagem original não está carregada na conversa.");
+      return;
+    }
+
+    const fetched = await fetchOneMessage(replyId);
+    if (!fetched) {
+      toast.error("Não foi possível carregar a mensagem original.");
+      return;
+    }
+
+    const author = fetched.persona.display_name ?? fetched.persona.name;
+    const preview = htmlToPlainText(fetched.content).slice(0, 100);
+    setReplyLookup((prev) => ({
+      ...prev,
+      [replyId]: { id: replyId, author, preview },
+    }));
+    toast.message(
+      "Mensagem original carregada. Role para cima para localizar no histórico.",
+    );
   }
 
   async function sendMessage() {
     if (!chatId || !isUuid(chatId) || !activePersona || sending) return;
 
-    const cleaned = (inputHtml || "").replace(/<p>\s*<\/p>/g, "").trim();
-    if (!cleaned) return;
+    const cleaned = (inputHtml || "").trim();
+    if (isRichHtmlEmpty(cleaned)) return;
 
     setSending(true);
     try {
       const fallbackPrefix = replyTo
-        ? `<blockquote><small>Respondendo a ${DOMPurify.sanitize(replyTo.name)}: ${DOMPurify.sanitize(replyTo.preview)}</small></blockquote>`
+        ? `<blockquote><small>Respondendo a ${DOMPurify.sanitize(
+            replyTo.name,
+          )}: ${DOMPurify.sanitize(replyTo.preview)}</small></blockquote>`
         : "";
-      const contentToSend = hasReplyToIdColumn
+
+      const contentToSend = hasReplyToColumn
         ? cleaned
         : `${fallbackPrefix}${cleaned}`;
 
+      // tenta inserir com reply_to se suportado
       let insertedId: string | null = null;
-      if (hasReplyToIdColumn) {
+
+      if (hasReplyToColumn) {
         const withReplyRes = await supabase
           .from("messages")
           .insert({
@@ -308,20 +482,18 @@ export default function ChatRoomPage() {
           .maybeSingle();
 
         if (withReplyRes.error) {
-          const message = withReplyRes.error.message.toLowerCase();
-          const missingReplyColumn =
-            message.includes("reply_to") &&
-            (message.includes("column") || message.includes("does not exist"));
-          if (!missingReplyColumn) {
+          if (isMissingColumnError(withReplyRes.error, "reply_to")) {
+            setHasReplyToColumn(false);
+          } else {
             toast.error(withReplyRes.error.message);
             return;
           }
-          setHasReplyToIdColumn(false);
         } else {
           insertedId = withReplyRes.data?.id ?? null;
         }
       }
 
+      // fallback sem reply_to
       if (!insertedId) {
         const fallbackRes = await supabase
           .from("messages")
@@ -342,14 +514,18 @@ export default function ChatRoomPage() {
 
       setInputHtml("");
       setReplyTo(null);
-      if (typingChannelRef.current && activePersona) {
+
+      // presença: parar typing
+      if (typingChannelRef.current) {
         void typingChannelRef.current.track({
           typing: false,
           personaId: activePersona.id,
           personaName: activePersona.name,
+          ts: Date.now(),
         } satisfies TypingPresence);
       }
 
+      // se eu estou no fim, rola suave
       if (insertedId && isNearBottom()) {
         setTimeout(() => scrollToBottom(true), 0);
       }
@@ -358,6 +534,7 @@ export default function ChatRoomPage() {
     }
   }
 
+  // realtime INSERT (sempre busca 1 msg pelo id pra render completo)
   useEffect(() => {
     if (!chatId || !isUuid(chatId)) {
       setLoading(false);
@@ -379,11 +556,8 @@ export default function ChatRoomPage() {
         },
         async (payload) => {
           const newRow = payload.new;
-          if (!newRow || typeof newRow !== "object" || !("id" in newRow))
-            return;
-          const newIdRaw = newRow.id;
-          const newId = typeof newIdRaw === "string" ? newIdRaw : null;
-          if (!newId) return;
+          const newId = (newRow as any)?.id;
+          if (typeof newId !== "string") return;
 
           const nearBottom = isNearBottom();
           const one = await fetchOneMessage(newId);
@@ -412,65 +586,82 @@ export default function ChatRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId]);
 
+  // garante foco na mensagem mais recente ao abrir no desktop/mobile
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+
+    const t1 = window.setTimeout(() => scrollToBottom(false), 0);
+    const t2 = window.setTimeout(() => scrollToBottom(false), 140);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [loading, chatId]);
+
+  // presença typing
   useEffect(() => {
     if (!chatId || !isUuid(chatId) || !activePersona) return;
 
-    const typingChannel = supabase.channel(`typing-${chatId}`, {
+    const typingChannel = supabase.channel(`presence-chat-${chatId}`, {
       config: { presence: { key: activePersona.id } },
     });
     typingChannelRef.current = typingChannel;
 
+    const recalcTypingUsers = () => {
+      const presence = typingChannel.presenceState<TypingPresence>();
+      const names = Object.values(presence)
+        .flatMap((entries) => entries)
+        .filter(
+          (entry) =>
+            entry.typing &&
+            entry.personaId !== activePersona.id &&
+            Date.now() - Number(entry.ts ?? 0) < 3000,
+        )
+        .map((entry) => entry.personaName)
+        .slice(0, 2);
+
+      setTypingUsers(Array.from(new Set(names)));
+    };
+
     typingChannel
-      .on("presence", { event: "sync" }, () => {
-        const presence = typingChannel.presenceState<TypingPresence>();
-        const names = Object.values(presence)
-          .flatMap((entries) => entries)
-          .filter(
-            (entry) => entry.typing && entry.personaId !== activePersona.id,
-          )
-          .map((entry) => entry.personaName)
-          .slice(0, 2);
-        setTypingUsers(Array.from(new Set(names)));
-      })
+      .on("presence", { event: "sync" }, recalcTypingUsers)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           void typingChannel.track({
             typing: false,
             personaId: activePersona.id,
             personaName: activePersona.name,
+            ts: Date.now(),
           } satisfies TypingPresence);
+          recalcTypingUsers();
         }
       });
 
+    const typingRefreshTimer = window.setInterval(recalcTypingUsers, 1000);
+
     return () => {
-      if (typingStopTimeoutRef.current) {
+      if (typingStopTimeoutRef.current)
         window.clearTimeout(typingStopTimeoutRef.current);
-      }
+      window.clearInterval(typingRefreshTimer);
       void typingChannel.untrack();
       supabase.removeChannel(typingChannel);
       typingChannelRef.current = null;
+      setTypingUsers([]);
     };
   }, [chatId, activePersona]);
 
+  // scroll handler (zera badge de novas msgs quando chega no fim)
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
 
     function onScroll() {
-      const currentEl = listRef.current;
-      if (!currentEl) return;
-      if (currentEl.scrollTop < 180) {
-        void loadOlder();
-      }
-      if (isNearBottom()) {
-        setPendingNewCount(0);
-      }
+      if (isNearBottom()) setPendingNewCount(0);
     }
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length, hasMore, loadingMore]);
+  }, []);
 
   const grouped = useMemo(() => {
     const out: Array<
@@ -492,229 +683,274 @@ export default function ChatRoomPage() {
   }, [messages, activePersona?.id]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col">
-      <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
-        <div className="flex items-center justify-between px-4 py-3 md:px-6">
-          <Button
-            variant="secondary"
-            className="rounded-2xl"
-            onClick={() => router.push("/app/chats")}
-          >
-            Voltar
-          </Button>
+    <WallpaperBackground
+      wallpaperId={chatWallpaperId}
+      className="min-h-dvh w-full"
+    >
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col">
+        <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
+          <div className="flex items-center justify-between px-4 py-3 md:px-6">
+            <Button
+              variant="secondary"
+              className="rounded-2xl"
+              onClick={() => router.push("/app/chats")}
+            >
+              Voltar
+            </Button>
 
-          <div className="text-center">
-            <p className="text-lg font-semibold">{chatTitle}</p>
-            <p className="text-xs text-muted-foreground">
-              {activePersona
-                ? `Falando como ${activePersona.name}`
-                : "Selecione uma persona"}
-            </p>
+            <div className="text-center">
+              <p className="text-lg font-semibold">{chatTitle}</p>
+              <p className="text-xs text-muted-foreground">
+                {activePersona
+                  ? `Falando como ${activePersona.name}`
+                  : "Selecione uma persona"}
+              </p>
+            </div>
+
+            <div className="w-20" />
           </div>
+        </header>
 
-          <div className="w-20" />
-        </div>
-      </header>
+        <div
+          ref={listRef}
+          className="flex-1 min-h-0 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+        >
+          {!chatId || !isUuid(chatId) ? (
+            <p className="text-sm text-muted-foreground">Chat inválido.</p>
+          ) : loading ? (
+            <p className="text-sm text-muted-foreground">Carregando...</p>
+          ) : (
+            <>
+              {hasMore ? (
+                <div className="flex justify-center">
+                  <Button
+                    variant="secondary"
+                    className="rounded-2xl"
+                    onClick={() => void loadOlder()}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore
+                      ? "Carregando mensagens antigas..."
+                      : "Carregar mensagens anteriores"}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-center text-xs text-muted-foreground">
+                  Você chegou no começo
+                </p>
+              )}
 
-      <div
-        ref={listRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
-      >
-        {!chatId || !isUuid(chatId) ? (
-          <p className="text-sm text-muted-foreground">Chat inválido.</p>
-        ) : loading ? (
-          <p className="text-sm text-muted-foreground">Carregando...</p>
-        ) : (
-          <>
-            {loadingMore ? (
-              <p className="text-center text-xs text-muted-foreground">
-                Carregando mensagens antigas…
-              </p>
-            ) : hasMore ? (
-              <p className="text-center text-xs text-muted-foreground">
-                Role para cima para carregar mais
-              </p>
-            ) : (
-              <p className="text-center text-xs text-muted-foreground">
-                Início do chat
-              </p>
-            )}
+              {pendingNewCount > 0 ? (
+                <div className="sticky top-2 z-20 flex justify-center">
+                  <button
+                    type="button"
+                    className="rounded-full border bg-background px-3 py-1 text-xs shadow"
+                    onClick={() => scrollToBottom(true)}
+                  >
+                    {pendingNewCount} novas mensagens
+                  </button>
+                </div>
+              ) : null}
 
-            {pendingNewCount > 0 ? (
-              <div className="sticky top-2 z-20 flex justify-center">
-                <button
-                  type="button"
-                  className="rounded-full border bg-background px-3 py-1 text-xs shadow"
-                  onClick={() => scrollToBottom(true)}
-                >
-                  {pendingNewCount} novas mensagens
-                </button>
-              </div>
-            ) : null}
+              {grouped.map((item, idx) => {
+                if (item.kind === "day") {
+                  return (
+                    <div key={`day-${idx}`} className="flex justify-center">
+                      <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                        {item.label}
+                      </span>
+                    </div>
+                  );
+                }
 
-            {grouped.map((item, idx) => {
-              if (item.kind === "day") {
+                const safe = DOMPurify.sanitize(renderRichHtml(item.m.content));
+                const avatar =
+                  item.m.persona.user_avatar ??
+                  item.m.persona.avatar_url ??
+                  null;
+
                 return (
-                  <div key={`day-${idx}`} className="flex justify-center">
-                    <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
-                      {item.label}
-                    </span>
+                  <div
+                    key={item.m.id}
+                    data-message-id={item.m.id}
+                    className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${
+                        item.mine
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
+                      } ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
+                    >
+                      <UserCardModal
+                        user={{
+                          username: item.m.persona.username,
+                          display_name:
+                            item.m.persona.display_name ?? item.m.persona.name,
+                          avatar_url: avatar,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="mb-2 flex items-center gap-2 text-left"
+                        >
+                          <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
+                            {avatar ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={avatar}
+                                alt="avatar"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : null}
+                          </div>
+                          <span className="text-xs font-semibold opacity-80">
+                            {item.m.persona.display_name ?? item.m.persona.name}
+                          </span>
+                        </button>
+                      </UserCardModal>
+
+                      <div className="mb-2 flex gap-2">
+                        <button
+                          type="button"
+                          className="text-xs opacity-80 underline"
+                          onClick={() =>
+                            setReplyTo({
+                              id: item.m.id,
+                              name:
+                                item.m.persona.display_name ??
+                                item.m.persona.name,
+                              preview: htmlToPlainText(item.m.content).slice(
+                                0,
+                                80,
+                              ),
+                            })
+                          }
+                        >
+                          Responder
+                        </button>
+                      </div>
+
+                      {hasReplyToColumn && item.m.reply_to ? (
+                        <button
+                          type="button"
+                          className="mb-2 block w-full rounded-xl border border-border/70 bg-background/60 px-2 py-1 text-left text-xs text-muted-foreground"
+                          onClick={() =>
+                            void resolveReplyMessage(item.m.reply_to as string)
+                          }
+                        >
+                          {replyLookup[item.m.reply_to] ? (
+                            <>
+                              Resposta a @{replyLookup[item.m.reply_to].author}:{" "}
+                              {replyLookup[item.m.reply_to].preview}
+                            </>
+                          ) : (
+                            "Resposta a uma mensagem (toque para carregar)"
+                          )}
+                        </button>
+                      ) : null}
+
+                      <div
+                        className="prose max-w-none break-words text-sm"
+                        dangerouslySetInnerHTML={{ __html: safe }}
+                      />
+                    </div>
                   </div>
                 );
-              }
+              })}
+            </>
+          )}
+        </div>
 
-              const safe = DOMPurify.sanitize(renderRichHtml(item.m.content));
-              const avatar =
-                item.m.persona.user_avatar ?? item.m.persona.avatar_url ?? null;
-
-              return (
-                <div
-                  key={item.m.id}
-                  className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-                  >
-                    <UserCardModal
-                      user={{
-                        username: item.m.persona.username,
-                        display_name:
-                          item.m.persona.display_name ?? item.m.persona.name,
-                        avatar_url: avatar,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="mb-2 flex items-center gap-2 text-left"
-                      >
-                        <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
-                          {avatar ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={avatar}
-                              alt="avatar"
-                              className="h-full w-full object-cover"
-                            />
-                          ) : null}
-                        </div>
-                        <span className="text-xs font-semibold opacity-80">
-                          {item.m.persona.display_name ?? item.m.persona.name}
-                        </span>
-                      </button>
-                    </UserCardModal>
-
-                    <div className="mb-2 flex gap-2">
-                      <button
-                        type="button"
-                        className="text-xs opacity-80 underline"
-                        onClick={() =>
-                          setReplyTo({
-                            id: item.m.id,
-                            name:
-                              item.m.persona.display_name ??
-                              item.m.persona.name,
-                            preview: htmlToPlainText(item.m.content).slice(
-                              0,
-                              80,
-                            ),
-                          })
-                        }
-                      >
-                        Responder
-                      </button>
-                    </div>
-
-                    <div
-                      className="prose max-w-none break-words text-sm"
-                      dangerouslySetInnerHTML={{ __html: safe }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-
-            <div ref={bottomRef} />
-          </>
-        )}
-      </div>
-
-      <div className="border-t bg-background p-3 md:p-4">
-        {typingUsers.length > 0 ? (
-          <div className="mb-2 text-xs text-muted-foreground">
-            {typingUsers.join(", ")}{" "}
-            {typingUsers.length === 1 ? "está digitando…" : "estão digitando…"}
-          </div>
-        ) : null}
-
-        {replyTo ? (
-          <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
-            <div className="min-w-0">
-              <div className="text-xs font-semibold">
-                Respondendo a {replyTo.name}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                {replyTo.preview}
-              </div>
+        <div className="border-t bg-background/85 backdrop-blur p-3 md:p-4">
+          {typingUsers.length > 0 ? (
+            <div className="mb-2 text-xs text-muted-foreground">
+              {typingUsers.join(", ")}{" "}
+              {typingUsers.length === 1
+                ? "está digitando…"
+                : "estão digitando…"}
             </div>
+          ) : null}
+
+          {replyTo ? (
+            <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold">
+                  Respondendo a {replyTo.name}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {replyTo.preview}
+                </div>
+              </div>
+              <Button
+                size="icon"
+                variant="secondary"
+                className="h-8 w-8 rounded-2xl"
+                onClick={() => setReplyTo(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="rounded-2xl border bg-background p-2">
+            <RichTextEditor
+              valueHtml={inputHtml}
+              onChangeHtml={(v) => {
+                setInputHtml(v);
+
+                if (!activePersona || !typingChannelRef.current) return;
+
+                // throttle “typing true”
+                if (Date.now() - typingTrackThrottleRef.current > 800) {
+                  typingTrackThrottleRef.current = Date.now();
+                  void typingChannelRef.current.track({
+                    typing: true,
+                    personaId: activePersona.id,
+                    personaName: activePersona.name,
+                    ts: Date.now(),
+                  } satisfies TypingPresence);
+                }
+
+                // debounce “typing false”
+                if (typingStopTimeoutRef.current) {
+                  window.clearTimeout(typingStopTimeoutRef.current);
+                }
+                typingStopTimeoutRef.current = window.setTimeout(() => {
+                  if (!typingChannelRef.current || !activePersona) return;
+                  void typingChannelRef.current.track({
+                    typing: false,
+                    personaId: activePersona.id,
+                    personaName: activePersona.name,
+                    ts: Date.now(),
+                  } satisfies TypingPresence);
+                }, 800);
+              }}
+              placeholder={
+                activePersona
+                  ? `Mensagem como ${activePersona.name}`
+                  : "Selecione uma persona"
+              }
+              compact
+              bucket="media"
+              folder="chats"
+              imageInsertMode="both"
+              enableTables={false}
+              aminoStyle
+            />
+          </div>
+
+          <div className="mt-2 flex justify-end">
             <Button
-              size="icon"
-              variant="secondary"
-              className="h-8 w-8 rounded-2xl"
-              onClick={() => setReplyTo(null)}
+              className="rounded-2xl"
+              onClick={() => void sendMessage()}
+              disabled={!activePersona || sending}
             >
-              <X className="h-4 w-4" />
+              {sending ? "Enviando..." : "Enviar"}
             </Button>
           </div>
-        ) : null}
-
-        <div className="rounded-2xl border bg-background p-2">
-          <RichTextEditor
-            valueHtml={inputHtml}
-            onChangeHtml={(v) => {
-              setInputHtml(v);
-              if (!activePersona || !typingChannelRef.current) return;
-              void typingChannelRef.current.track({
-                typing: true,
-                personaId: activePersona.id,
-                personaName: activePersona.name,
-              } satisfies TypingPresence);
-
-              if (typingStopTimeoutRef.current) {
-                window.clearTimeout(typingStopTimeoutRef.current);
-              }
-              typingStopTimeoutRef.current = window.setTimeout(() => {
-                if (!typingChannelRef.current || !activePersona) return;
-                void typingChannelRef.current.track({
-                  typing: false,
-                  personaId: activePersona.id,
-                  personaName: activePersona.name,
-                } satisfies TypingPresence);
-              }, 800);
-            }}
-            placeholder={
-              activePersona
-                ? `Mensagem como ${activePersona.name}`
-                : "Selecione uma persona"
-            }
-            compact
-            bucket="media"
-            folder="chats"
-            imageInsertMode="both"
-            enableTables={false}
-            aminoStyle
-          />
-        </div>
-
-        <div className="mt-2 flex justify-end">
-          <Button
-            className="rounded-2xl"
-            onClick={() => void sendMessage()}
-            disabled={!activePersona || sending}
-          >
-            {sending ? "Enviando..." : "Enviar"}
-          </Button>
         </div>
       </div>
-    </div>
+    </WallpaperBackground>
   );
 }

@@ -19,12 +19,17 @@ import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
+import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
+import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
+import { safeSelect } from "@/lib/supabase/fallback";
 
 type PostRow = {
   id: string;
   content: string;
   created_at: string;
   persona_id: string;
+  wallpaper_id?: string | null;
   personas?: { id: string; name: string; avatar_url: string | null } | null;
 };
 
@@ -43,6 +48,7 @@ export default function PostEditPage() {
   const [backgroundColor, setBackgroundColor] = useState<string>(
     DEFAULT_DOC_BACKGROUND,
   );
+  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
 
   const canEdit = useMemo(
     () => !!post && !!activePersona && post.persona_id === activePersona.id,
@@ -50,12 +56,7 @@ export default function PostEditPage() {
   );
 
   const canSave = useMemo(() => {
-    const html = (contentHtml || "")
-      .trim()
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
-    return !!title.trim() && !!html;
+    return !!title.trim() && !isRichHtmlEmpty(contentHtml);
   }, [contentHtml, title]);
 
   const drafts = useDraftAutosave({
@@ -79,31 +80,42 @@ export default function PostEditPage() {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("posts")
-        .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
-        .eq("id", postId)
-        .maybeSingle();
+      const query = await safeSelect({
+        missingColumn: "wallpaper_id",
+        primary: () =>
+          supabase
+            .from("posts")
+            .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
+            .eq("id", postId)
+            .maybeSingle(),
+        fallback: () =>
+          supabase
+            .from("posts")
+            .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+            .eq("id", postId)
+            .maybeSingle(),
+      });
 
-      if (error) {
-        toast.error(error.message);
+      if (query.error) {
+        toast.error(query.error.message);
         setPost(null);
         setLoading(false);
         return;
       }
 
-      if (!data) {
+      if (!query.data) {
         setPost(null);
         setLoading(false);
         return;
       }
 
-      const row = data as unknown as PostRow;
+      const row = query.data as unknown as PostRow;
       const parsed = parseDocContent(row.content ?? "");
       setPost(row);
       setTitle(parsed.title);
       setContentHtml(parsed.bodyHtml);
       setBackgroundColor(parsed.backgroundColor);
+      setWallpaperId(row.wallpaper_id ?? null);
       setLoading(false);
     }
 
@@ -118,25 +130,39 @@ export default function PostEditPage() {
     if (!title.trim()) return toast.error("Título é obrigatório.");
     if (!canSave) return toast.error("Escreva alguma coisa antes de salvar.");
 
-    const sanitized = contentHtml
-      .trim()
-      .replace(/<p>\s*<\/p>/g, "")
-      .replace(/<p><br><\/p>/g, "")
-      .trim();
+    const sanitized = contentHtml.trim();
 
     const payload = buildDocContent({
       title,
       bodyHtml: sanitized,
       backgroundColor,
     });
+    const uiThemePayload = {
+      background: wallpaperId
+        ? { kind: "wallpaper", value: wallpaperId }
+        : { kind: "solid", value: backgroundColor },
+      foreground: "auto",
+    };
 
     setSaving(true);
     try {
-      const { error } = await supabase
+      let updateRes = await supabase
         .from("posts")
-        .update({ content: payload })
+        .update({ content: payload, wallpaper_id: wallpaperId, ui_theme: uiThemePayload })
         .eq("id", post.id);
-      if (error) throw error;
+      if (isMissingColumnError(updateRes.error, "ui_theme")) {
+        updateRes = await supabase
+          .from("posts")
+          .update({ content: payload, wallpaper_id: wallpaperId })
+          .eq("id", post.id);
+      }
+      if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
+        updateRes = await supabase
+          .from("posts")
+          .update({ content: payload })
+          .eq("id", post.id);
+      }
+      if (updateRes.error) throw updateRes.error;
 
       await drafts.discard();
       toast.success("Post atualizado!");
@@ -246,6 +272,8 @@ export default function PostEditPage() {
             value={backgroundColor}
             onChange={setBackgroundColor}
           />
+
+          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper do post" />
 
           <div className="rounded-2xl p-2" style={{ backgroundColor }}>
             <RichTextEditor

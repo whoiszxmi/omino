@@ -15,7 +15,6 @@ export type Highlight = {
   created_at: string;
 };
 
-// Tipo com title garantido como string (não-nulo)
 export type NormalizedHighlight = Highlight & {
   title: string;
   isRemoved?: boolean;
@@ -26,50 +25,35 @@ type GetOpts = {
   limit?: number;
 };
 
-/**
- * Normaliza highlights: garante title como string e marca isRemoved
- * caso o post/wiki alvo tenha sido deletado.
- *
- * Esta função estava ausente e causava ReferenceError em runtime
- * em feed/page.tsx e profile/page.tsx.
- */
-export async function normalizeHighlights(
-  items: Highlight[],
-): Promise<NormalizedHighlight[]> {
-  if (items.length === 0) return [];
-
+async function filterExistingTargets(items: Highlight[]) {
   const postIds = items
-    .filter((h) => h.target_type === "post")
-    .map((h) => h.target_id);
+    .filter((item) => item.target_type === "post")
+    .map((item) => item.target_id);
   const wikiIds = items
-    .filter((h) => h.target_type === "wiki")
-    .map((h) => h.target_id);
+    .filter((item) => item.target_type === "wiki")
+    .map((item) => item.target_id);
 
   const [postsRes, wikiRes] = await Promise.all([
     postIds.length
       ? supabase.from("posts").select("id").in("id", postIds)
-      : Promise.resolve({ data: [] as { id: string }[], error: null }),
+      : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
     wikiIds.length
       ? supabase.from("wiki_pages").select("id").in("id", wikiIds)
-      : Promise.resolve({ data: [] as { id: string }[], error: null }),
+      : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
   ]);
 
-  const validPostIds = new Set((postsRes.data ?? []).map((r) => r.id));
-  const validWikiIds = new Set((wikiRes.data ?? []).map((r) => r.id));
+  if (postsRes.error || wikiRes.error) {
+    return items;
+  }
 
-  return items.map((item): NormalizedHighlight => {
-    const isRemoved =
-      item.target_type === "post"
-        ? !validPostIds.has(item.target_id)
-        : !validWikiIds.has(item.target_id);
+  const validPostIds = new Set((postsRes.data ?? []).map((row) => row.id));
+  const validWikiIds = new Set((wikiRes.data ?? []).map((row) => row.id));
 
-    return {
-      ...item,
-      title:
-        item.title?.trim() || (item.target_type === "wiki" ? "Wiki" : "Post"),
-      isRemoved,
-    };
-  });
+  return items.filter((item) =>
+    item.target_type === "post"
+      ? validPostIds.has(item.target_id)
+      : validWikiIds.has(item.target_id),
+  );
 }
 
 export async function getCommunityHighlights(opts: GetOpts = {}) {
@@ -88,6 +72,7 @@ export async function getCommunityHighlights(opts: GetOpts = {}) {
     console.error("ERRO getCommunityHighlights:", error);
     return [];
   }
+  // manter itens órfãos para UI sinalizar como removido quando necessário
   return (data ?? []) as Highlight[];
 }
 
@@ -114,6 +99,8 @@ export async function getMyHighlights(
     console.error("ERRO getMyHighlights:", error);
     return [];
   }
+
+  // manter itens órfãos para UI sinalizar como removido quando necessário
   return (data ?? []) as Highlight[];
 }
 

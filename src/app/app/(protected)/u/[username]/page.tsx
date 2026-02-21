@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import FollowButton from "@/components/profile/FollowButton";
-import { renderRichHtml } from "@/lib/render/richText";
+import { parseDocContent } from "@/lib/content/docMeta";
+import { FileText } from "lucide-react";
 
 type Profile = {
   id: string;
@@ -20,8 +21,20 @@ type PostRow = {
   id: string;
   content: string;
   created_at: string;
+  title: string;
+  excerpt: string;
+  coverColor: string;
   personas: { name: string; avatar_url: string | null } | null;
 };
+
+function toExcerpt(html: string) {
+  const plain = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= 180) return plain;
+  return `${plain.slice(0, 180).trim()}...`;
+}
 
 export default function PublicProfilePage({
   params,
@@ -93,7 +106,17 @@ export default function PublicProfilePage({
 
     if (postsRes.error) console.error(postsRes.error);
 
-    setPosts((postsRes.data ?? []) as any);
+    const normalized = ((postsRes.data ?? []) as any[]).map((row) => {
+      const parsed = parseDocContent(row.content ?? "");
+      return {
+        ...row,
+        title: parsed.title?.trim() || "Sem título",
+        excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
+        coverColor: parsed.backgroundColor,
+      };
+    });
+
+    setPosts(normalized as PostRow[]);
     setLoading(false);
   }
 
@@ -103,7 +126,7 @@ export default function PublicProfilePage({
   }, [params.username]);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col gap-4 p-4 md:p-6">
       <header className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Perfil</h1>
         <Button
@@ -193,19 +216,31 @@ export default function PublicProfilePage({
                 </div>
               ) : (
                 posts.map((p) => (
-                  <div key={p.id} className="rounded-2xl border p-3">
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="w-full rounded-2xl border p-3 text-left"
+                    onClick={() => (location.href = `/app/post/${p.id}`)}
+                  >
                     <div className="mb-2 text-xs text-muted-foreground">
-                      {p.personas?.name ?? "Persona"} •{" "}
+                      por @{p.personas?.name ?? "persona"} •{" "}
                       {new Date(p.created_at).toLocaleString("pt-BR")}
                     </div>
 
-                    <div
-                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                      dangerouslySetInnerHTML={{
-                        __html: renderRichHtml(p.content),
-                      }}
-                    />
-                  </div>
+                    <h3 className="line-clamp-2 text-base font-semibold">{p.title}</h3>
+
+                    <div className="my-3 relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
+                      <div
+                        className="h-full w-full"
+                        style={{ backgroundColor: p.coverColor || "#f8fafc" }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <FileText className="h-8 w-8 text-muted-foreground/70" />
+                      </div>
+                    </div>
+
+                    <p className="line-clamp-3 text-sm text-muted-foreground">{p.excerpt || "Sem prévia disponível."}</p>
+                  </button>
                 ))
               )}
             </CardContent>

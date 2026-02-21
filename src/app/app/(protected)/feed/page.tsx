@@ -5,32 +5,47 @@ import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { parseDocContent } from "@/lib/content/docMeta";
+import { FileText } from "lucide-react";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { safeSelect } from "@/lib/supabase/fallback";
 
+// ⚠️ ajuste se necessário
 import PostComments from "@/app/app/(protected)/feed/PostComments";
 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-
 import {
   getCommunityHighlights,
   normalizeHighlights, // ← BUGFIX: importar a função que faltava
   type NormalizedHighlight,
   type HighlightTargetType,
+  type NormalizedHighlight,
 } from "@/lib/highlights/highlights";
-
-import { renderRichHtml } from "@/lib/render/richText";
 
 type Post = {
   id: string;
   content: string;
   created_at: string;
+  title: string;
+  excerpt: string;
+  coverColor: string;
+  wallpaperId: string | null;
   persona: {
     id: string;
     name: string;
     avatar_url?: string | null;
   };
 };
+
+function toExcerpt(html: string) {
+  const plain = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= 220) return plain;
+  return `${plain.slice(0, 220).trim()}...`;
+}
 
 export default function FeedPage() {
   const { activePersona } = useActivePersona();
@@ -51,39 +66,75 @@ export default function FeedPage() {
   async function loadPosts() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("posts")
-      .select(
-        `
-          id,
-          content,
-          created_at,
-          persona_id,
-          personas (
-            name,
-            avatar_url
+    const res = await safeSelect({
+      missingColumn: "wallpaper_id",
+      // fallback para ambientes sem wallpaper_id
+      primary: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
+              id,
+              content,
+              created_at,
+              persona_id,
+              wallpaper_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
           )
-        `,
-      )
-      .order("created_at", { ascending: false })
-      .limit(50);
+          .order("created_at", { ascending: false })
+          .limit(50),
+      fallback: () =>
+        supabase
+          .from("posts")
+          .select(
+            `
+              id,
+              content,
+              created_at,
+              persona_id,
+              personas:personas (
+                id,
+                name,
+                avatar_url
+              )
+            `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+    });
 
-    if (error) {
-      console.error("ERRO loadPosts:", error);
+    if (res.error) {
+      console.error("ERRO loadPosts:", res.error);
+      setPosts([]);
       setLoading(false);
       return;
     }
 
-    const mapped: Post[] = (data ?? []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      created_at: row.created_at,
-      persona: {
-        id: row.persona_id,
-        name: row.personas?.name ?? "Desconhecido",
-        avatar_url: row.personas?.avatar_url ?? null,
-      },
-    }));
+    const mapped: Post[] = (res.data ?? []).map((row: any) => {
+      const parsed = parseDocContent(row.content ?? "");
+      const derivedTitle = parsed.title?.trim() || "Sem título";
+
+      return {
+        id: row.id,
+        content: row.content,
+        created_at: row.created_at,
+        title: derivedTitle,
+        excerpt: toExcerpt(parsed.bodyHtml || row.content || ""),
+        coverColor: parsed.backgroundColor,
+        // ✅ aqui pode não existir, então “?? null” resolve
+        wallpaperId: (row as any).wallpaper_id ?? null,
+        persona: {
+          id: row.persona_id,
+          name: row.personas?.name ?? "Desconhecido",
+          avatar_url: row.personas?.avatar_url ?? null,
+        },
+      };
+    });
 
     for (const p of mapped) {
       personaCache.current[p.persona.id] = {
@@ -108,18 +159,73 @@ export default function FeedPage() {
 
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
+    const normalized = (await normalizeHighlights(
+      limited,
+    )) as NormalizedHighlight[];
 
-    // BUGFIX: era um bloco inline duplicado aqui que reinventava a normalização.
-    // Agora usa normalizeHighlights() do highlights.ts (fonte única de verdade).
-    const normalized = await normalizeHighlights(limited);
+    const wikiIds = limited
+      .filter((item) => item.target_type === "wiki")
+      .map((item) => item.target_id);
+    const missingPostIds = limited
+      .filter((item) => item.target_type === "post" && !item.title)
+      .map((item) => item.target_id);
+
+    let wikiTitles = new Map<string, string>();
+    let postTitles = new Map<string, string>();
+
+    if (wikiIds.length > 0) {
+      const { data: wikiData, error: wikiErr } = await supabase
+        .from("wiki_pages")
+        .select("id, title")
+        .in("id", wikiIds);
+
+      if (wikiErr) console.error("ERRO loadHighlights (wiki titles):", wikiErr);
+
+      wikiTitles = new Map(
+        (wikiData ?? []).map((row: any) => [
+          row.id as string,
+          (row.title as string) ?? "Wiki",
+        ]),
+      );
+    }
+
+    if (missingPostIds.length > 0) {
+      const { data: postData, error: postErr } = await supabase
+        .from("posts")
+        .select("id, content")
+        .in("id", missingPostIds);
+
+      if (postErr) console.error("ERRO loadHighlights (post titles):", postErr);
+
+      postTitles = new Map(
+        (postData ?? []).map((row: any) => {
+          const parsed = parseDocContent((row.content as string) ?? "");
+          return [row.id as string, parsed.title?.trim() || "Post"];
+        }),
+      );
+    }
+
+    const normalized: Highlight[] = limited.map((item) => {
+      if (item.target_type === "wiki") {
+        return {
+          ...item,
+          title: wikiTitles.get(item.target_id) || item.title?.trim() || "Wiki",
+        };
+      }
+
+      return {
+        ...item,
+        title: item.title?.trim() || postTitles.get(item.target_id) || "Post",
+      };
+    });
 
     setHighlights(normalized.filter((h) => !h.isRemoved));
     setHighlightsLoading(false);
   }
 
   useEffect(() => {
-    loadPosts();
-    loadHighlights();
+    void loadPosts();
+    void loadHighlights();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -129,8 +235,8 @@ export default function FeedPage() {
       : highlights.filter((item) => item.target_type === highlightFilter);
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col gap-4 p-4 md:p-6">
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold">Feed</h1>
           <p className="truncate text-xs text-muted-foreground">
@@ -138,10 +244,10 @@ export default function FeedPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => (location.href = "/app/drafts")}
           >
             Rascunhos
@@ -149,19 +255,20 @@ export default function FeedPage() {
 
           <Button
             variant="secondary"
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => {
-              loadPosts();
-              loadHighlights();
+              void loadPosts();
+              void loadHighlights();
             }}
           >
             Atualizar
           </Button>
 
           <Button
-            className="rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto"
             onClick={() => (location.href = "/app/feed/new")}
             disabled={!activePersona}
+            title={!activePersona ? "Selecione uma persona" : "Novo post"}
           >
             Novo
           </Button>
@@ -214,13 +321,16 @@ export default function FeedPage() {
               <div className="grid grid-cols-2 gap-3">
                 {filteredHighlights.map((item) => {
                   const isWiki = item.target_type === "wiki";
+                  const title = item.title;
+                  const disabled = !!item.isRemoved;
 
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
+                      className={`aspect-square overflow-hidden rounded-2xl border text-left transition ${disabled ? "cursor-not-allowed opacity-75" : "hover:bg-muted/30"}`}
                       onClick={() => {
+                        if (disabled) return;
                         location.href = isWiki
                           ? `/app/wiki/${item.target_id}`
                           : `/app/post/${item.target_id}`;
@@ -235,12 +345,22 @@ export default function FeedPage() {
                               alt={item.title}
                               className="h-full w-full object-cover"
                             />
-                          ) : null}
+                          ) : (
+                            <WallpaperBackground
+                              wallpaperId={isWiki ? "frostBlue" : "royalGrid"}
+                              fallback="#dbeafe"
+                              className="h-full w-full"
+                            />
+                          )}
                         </div>
 
                         <div className="space-y-2 p-3">
                           <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                            {isWiki ? "Wiki" : "Post"}
+                            {item.isRemoved
+                              ? "Removido"
+                              : isWiki
+                                ? "Wiki"
+                                : "Post"}
                           </span>
 
                           <div className="truncate text-sm font-medium">
@@ -270,34 +390,48 @@ export default function FeedPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
           {posts.map((p) => (
             <Card
               key={p.id}
-              className="cursor-pointer rounded-2xl"
+              className="cursor-pointer rounded-2xl shadow-sm"
               onClick={() => (location.href = `/app/post/${p.id}`)}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{p.persona.name}</CardTitle>
+              <CardHeader className="space-y-2 pb-2">
+                <CardTitle className="line-clamp-2 text-base">
+                  {p.title}
+                </CardTitle>
+                <div className="text-xs text-muted-foreground">
+                  por @{p.persona.name}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {new Date(p.created_at).toLocaleString("pt-BR")}
                 </div>
               </CardHeader>
 
               <CardContent className="space-y-3">
-                <div
-                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                  dangerouslySetInnerHTML={{
-                    __html: renderRichHtml(p.content),
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div className="relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
+                  <WallpaperBackground
+                    wallpaperId={p.wallpaperId}
+                    fallback={p.coverColor || "#f8fafc"}
+                    className="h-full w-full"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <FileText className="h-8 w-8 text-muted-foreground/70" />
+                  </div>
+                </div>
 
+                <p className="line-clamp-4 text-sm text-muted-foreground">
+                  {p.excerpt || "Sem prévia disponível."}
+                </p>
+                <p className="text-sm font-medium text-primary">Ler mais</p>
+
+                {/* ✅ Botões de destaque (não deve navegar ao clicar) */}
                 <div onClick={(e) => e.stopPropagation()}>
                   <HighlightButtonGroup
                     targetType="post"
                     targetId={p.id}
-                    title={`Post de ${p.persona.name}`}
+                    title={p.title}
                   />
                 </div>
 
