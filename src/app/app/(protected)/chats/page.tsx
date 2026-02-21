@@ -97,6 +97,11 @@ export default function ChatsPage() {
 
   const [inviteQuery, setInviteQuery] = useState("");
   const [inviteResults, setInviteResults] = useState<ProfileRow[]>([]);
+  // BUGFIX: antes inviteResults exibia usuários mas sem forma de selecioná-los.
+  // selectedInviteIds guarda quem foi adicionado ao grupo.
+  const [selectedInviteIds, setSelectedInviteIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [inviting, setInviting] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -142,6 +147,7 @@ export default function ChatsPage() {
     setSelectedUserId(null);
     setInviteQuery("");
     setInviteResults([]);
+    setSelectedInviteIds(new Set());
     if (nextType) setCreateType(nextType);
   }
 
@@ -198,11 +204,11 @@ export default function ChatsPage() {
         return;
       }
 
-      if (inviteResults.length > 0) {
+      if (selectedInviteIds.size > 0) {
         setInviting(true);
-        const rows = inviteResults.map((p) => ({
+        const rows = Array.from(selectedInviteIds).map((uid) => ({
           chat_id: chatId,
-          user_id: p.id,
+          user_id: uid,
         }));
 
         const inviteRes = await supabase
@@ -424,14 +430,42 @@ export default function ChatsPage() {
                       }}
                     />
 
+                    {selectedInviteIds.size > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedInviteIds.size} selecionado(s)
+                      </p>
+                    )}
                     <div className="max-h-40 space-y-2 overflow-auto">
-                      {inviteResults.map((u) => (
-                        <Card key={u.id} className="rounded-xl border">
-                          <CardContent className="p-2 text-sm">
-                            {u.display_name ?? u.username ?? "Usuário"}
-                          </CardContent>
-                        </Card>
-                      ))}
+                      {inviteResults.map((u) => {
+                        const isSelected = selectedInviteIds.has(u.id);
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            className={
+                              "w-full rounded-xl border p-2 text-left text-sm flex items-center justify-between transition " +
+                              (isSelected
+                                ? "bg-primary/10 border-primary"
+                                : "hover:bg-muted/60")
+                            }
+                            onClick={() =>
+                              setSelectedInviteIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(u.id)) next.delete(u.id);
+                                else next.add(u.id);
+                                return next;
+                              })
+                            }
+                          >
+                            <span>
+                              {u.display_name ?? u.username ?? "Usuário"}
+                            </span>
+                            <span className="text-xs">
+                              {isSelected ? "✓ Adicionado" : "+ Adicionar"}
+                            </span>
+                          </button>
+                        );
+                      })}
                       {inviteQuery.trim() && inviteResults.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
                           Nenhum usuário encontrado.

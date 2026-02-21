@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,11 @@ export default function AllowlistGuard({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  // BUGFIX: router é instável no App Router — guardar em ref evita loop de verificações
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  });
   const pathname = usePathname();
   const [state, setState] = useState<GuardState>({ status: "checking" });
 
@@ -42,7 +47,7 @@ export default function AllowlistGuard({
 
       if (!session?.user) {
         if (pathname !== "/app/login") {
-          router.replace("/app/login");
+          routerRef.current.replace("/app/login");
         }
         if (!cancelled) {
           setState({ status: "denied", message: "Sessão não encontrada." });
@@ -96,7 +101,8 @@ export default function AllowlistGuard({
     return () => {
       cancelled = true;
     };
-  }, [pathname, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -145,7 +151,7 @@ export default function AllowlistGuard({
           className="rounded-2xl"
           onClick={async () => {
             await supabase.auth.signOut();
-            router.replace("/app/login");
+            routerRef.current.replace("/app/login");
           }}
         >
           Sair
@@ -153,7 +159,7 @@ export default function AllowlistGuard({
         <Button
           className="rounded-2xl"
           onClick={() => {
-            router.replace("/app/login");
+            routerRef.current.replace("/app/login");
           }}
         >
           Voltar

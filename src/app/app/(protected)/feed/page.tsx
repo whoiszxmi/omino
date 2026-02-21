@@ -6,8 +6,6 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-// Se esse caminho estiver errado no seu projeto, ajuste para onde o PostComments realmente está.
-// (ex: "@/components/feed/PostComments")
 import PostComments from "@/app/app/(protected)/feed/PostComments";
 
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -16,7 +14,8 @@ import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 
 import {
   getCommunityHighlights,
-  type Highlight,
+  normalizeHighlights, // ← BUGFIX: importar a função que faltava
+  type NormalizedHighlight,
   type HighlightTargetType,
 } from "@/lib/highlights/highlights";
 
@@ -40,12 +39,11 @@ export default function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   const [highlightsLoading, setHighlightsLoading] = useState(true);
-  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [highlights, setHighlights] = useState<NormalizedHighlight[]>([]);
   const [highlightFilter, setHighlightFilter] = useState<
     "all" | HighlightTargetType
   >("all");
 
-  // cache: persona_id -> { name, avatar_url }
   const personaCache = useRef<
     Record<string, { name: string; avatar_url: string | null }>
   >({});
@@ -101,7 +99,6 @@ export default function FeedPage() {
   async function loadHighlights() {
     setHighlightsLoading(true);
 
-    // se não está logado, não mostra destaques (por enquanto)
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) {
       setHighlights([]);
@@ -112,47 +109,11 @@ export default function FeedPage() {
     const data = await getCommunityHighlights();
     const limited = (data ?? []).slice(0, 8);
 
-    // buscar títulos faltantes de wiki (se você salva title no highlight, isso quase não roda)
-    const missingWikiIds = limited
-      .filter((item) => item.target_type === "wiki" && !item.title)
-      .map((item) => item.target_id);
+    // BUGFIX: era um bloco inline duplicado aqui que reinventava a normalização.
+    // Agora usa normalizeHighlights() do highlights.ts (fonte única de verdade).
+    const normalized = await normalizeHighlights(limited);
 
-    let wikiTitles = new Map<string, string>();
-
-    if (missingWikiIds.length > 0) {
-      // ⚠️ Ajuste o nome da tabela se no seu projeto for "wikis" ou outra.
-      const { data: wikiData, error: wikiErr } = await supabase
-        .from("wiki_pages")
-        .select("id, title")
-        .in("id", missingWikiIds);
-
-      if (wikiErr) {
-        console.error("ERRO loadHighlights (wiki titles):", wikiErr);
-      }
-
-      wikiTitles = new Map(
-        (wikiData ?? []).map((row: any) => [
-          row.id as string,
-          (row.title as string) ?? "Wiki",
-        ]),
-      );
-    }
-
-    const normalized: Highlight[] = limited.map((item) => {
-      if (item.title) return item;
-
-      if (item.target_type === "wiki") {
-        return {
-          ...item,
-          title: wikiTitles.get(item.target_id) ?? "Wiki",
-        };
-      }
-
-      // post sem título
-      return { ...item, title: "Post" };
-    });
-
-    setHighlights(normalized);
+    setHighlights(normalized.filter((h) => !h.isRemoved));
     setHighlightsLoading(false);
   }
 
@@ -253,7 +214,6 @@ export default function FeedPage() {
               <div className="grid grid-cols-2 gap-3">
                 {filteredHighlights.map((item) => {
                   const isWiki = item.target_type === "wiki";
-                  const title = item.title ?? (isWiki ? "Wiki" : "Post");
 
                   return (
                     <button
@@ -272,7 +232,7 @@ export default function FeedPage() {
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={item.cover_url}
-                              alt={title}
+                              alt={item.title}
                               className="h-full w-full object-cover"
                             />
                           ) : null}
@@ -284,7 +244,7 @@ export default function FeedPage() {
                           </span>
 
                           <div className="truncate text-sm font-medium">
-                            {title}
+                            {item.title}
                           </div>
                         </div>
                       </div>
@@ -333,7 +293,6 @@ export default function FeedPage() {
                   onClick={(e) => e.stopPropagation()}
                 />
 
-                {/* ✅ Botões de destaque (não deve navegar ao clicar) */}
                 <div onClick={(e) => e.stopPropagation()}>
                   <HighlightButtonGroup
                     targetType="post"
@@ -342,7 +301,6 @@ export default function FeedPage() {
                   />
                 </div>
 
-                {/* ✅ comentários do post (não deve navegar ao clicar) */}
                 <div onClick={(event) => event.stopPropagation()}>
                   <PostComments postId={p.id} />
                 </div>

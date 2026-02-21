@@ -155,7 +155,7 @@ export default function ChatRoomPage() {
         content: row.content,
         created_at: row.created_at,
         persona_id: row.persona_id,
-        reply_to: row.reply_to ?? row.reply_to ?? null,
+        reply_to: row.reply_to ?? null,
         persona: {
           id: row.personas.id,
           name: row.personas.name,
@@ -182,7 +182,7 @@ export default function ChatRoomPage() {
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", validChatId)
         .order("created_at", { ascending: false })
@@ -227,7 +227,7 @@ export default function ChatRoomPage() {
       const res = await supabase
         .from("messages")
         .select(
-          "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+          "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
         )
         .eq("chat_id", chatId)
         .lt("created_at", oldest.created_at)
@@ -267,7 +267,7 @@ export default function ChatRoomPage() {
     const res = await supabase
       .from("messages")
       .select(
-        "id,persona_id,content,created_at,reply_to,reply_to,personas!inner(id,user_id,name,avatar_url)",
+        "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)",
       )
       .eq("id", messageId)
       .maybeSingle();
