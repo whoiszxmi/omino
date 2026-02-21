@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { Button } from "@/components/ui/button";
-import { WALLPAPERS } from "@/lib/wallpapers/catalog";
+import { WALLPAPERS, WALLPAPER_CATEGORIES } from "@/lib/wallpapers/catalog";
 import { cn } from "@/lib/utils";
 
 type WallpaperPickerProps = {
@@ -18,45 +19,81 @@ export default function WallpaperPicker({
   className,
   label = "Wallpaper",
 }: WallpaperPickerProps) {
+  const [activeCategory, setActiveCategory] = useState<string>("dark");
+
+  const filtered = WALLPAPERS.filter((w) => w.category === activeCategory);
+
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-3", className)}>
+      {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">{label}</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 rounded-xl px-2 text-xs"
-          onClick={() => onChange(null)}
-        >
-          Sem wallpaper
-        </Button>
+        {value && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 rounded-xl px-2 text-xs text-muted-foreground"
+            onClick={() => onChange(null)}
+          >
+            Remover
+          </Button>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {WALLPAPERS.map((wallpaper) => {
+      {/* Category tabs */}
+      <div className="flex gap-1 rounded-xl border p-1">
+        {WALLPAPER_CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            type="button"
+            onClick={() => setActiveCategory(cat.id)}
+            className={cn(
+              "flex-1 rounded-lg px-2 py-1 text-xs font-medium transition",
+              activeCategory === cat.id
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Grid */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        {filtered.map((wallpaper) => {
           const selected = value === wallpaper.id;
           return (
             <button
               key={wallpaper.id}
               type="button"
               className={cn(
-                "overflow-hidden rounded-xl border text-left transition",
-                selected ? "ring-2 ring-primary" : "hover:border-primary/40",
+                "group overflow-hidden rounded-xl border text-left transition",
+                selected
+                  ? "ring-2 ring-primary ring-offset-1"
+                  : "hover:border-primary/50",
               )}
-              onClick={() => onChange(wallpaper.id)}
+              onClick={() => onChange(selected ? null : wallpaper.id)}
             >
               <WallpaperBackground
                 wallpaperId={wallpaper.id}
-                className="h-16 w-full"
+                className="h-14 w-full"
               />
-              <div className="truncate px-2 py-1 text-[11px] text-muted-foreground">
+              <div className="truncate bg-background/80 px-1.5 py-1 text-[10px] text-muted-foreground">
                 {wallpaper.name}
               </div>
             </button>
           );
         })}
       </div>
+
+      {/* Preview do selecionado */}
+      {value && (
+        <div className="overflow-hidden rounded-xl border">
+          <WallpaperBackground wallpaperId={value} className="h-20 w-full" />
+        </div>
+      )}
     </div>
   );
 }

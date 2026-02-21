@@ -3,15 +3,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Segmented, SegmentedItem } from "@/components/ui/segmented";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { FileText, Folder, Plus, RefreshCw } from "lucide-react";
+import {
+  BookOpen,
+  ChevronRight,
+  FileText,
+  Folder,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { safeSelect } from "@/lib/supabase/fallback";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { cn } from "@/lib/utils";
+
+// Schema real de `wiki_pages`:
+// id, title, content_html, category_id, created_by_persona_id,
+// created_at, updated_at, cover_url, wallpaper_id (uuid FK), wallpaper_slug (text),
+// wallpaper_mode, theme, text_contrast
 
 type Category = {
   id: string;
@@ -27,12 +39,81 @@ type Wiki = {
   category_id: string | null;
   created_at: string;
   updated_at: string;
-  wallpaper_id?: string | null;
+  // wallpaper_slug é o campo TEXT para lookup local (zero banda)
+  wallpaper_slug: string | null;
 };
 
 const FILTER_ALL = "all";
 const FILTER_NONE = "none";
 const WIKI_PAGE_SIZE = 18;
+
+function WikiCard({ w, onClick }: { w: Wiki; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="group flex flex-col overflow-hidden rounded-2xl border bg-card text-left transition hover:shadow-md active:scale-[0.98]"
+      onClick={onClick}
+    >
+      {/* Thumbnail: cover_url real ou wallpaper local (zero banda) */}
+      <div className="relative h-28 w-full overflow-hidden bg-muted/30">
+        {w.cover_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={w.cover_url}
+            alt={w.title}
+            className="h-full w-full object-cover transition group-hover:scale-105"
+          />
+        ) : w.wallpaper_slug ? (
+          <WallpaperBackground
+            wallpaperSlug={w.wallpaper_slug}
+            className="h-full w-full"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <BookOpen className="h-6 w-6 text-muted-foreground/30" />
+          </div>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col gap-0.5 p-3">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">
+          {w.title}
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          {new Date(w.updated_at).toLocaleDateString("pt-BR")}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function CategoryCard({
+  cat,
+  count,
+  onClick,
+}: {
+  cat: Category;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3 text-left transition hover:bg-muted/40 active:scale-[0.98]"
+      onClick={onClick}
+    >
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted/60">
+        <Folder className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{cat.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {count} {count === 1 ? "wiki" : "wikis"}
+        </p>
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+    </button>
+  );
+}
 
 export default function WikiHomePage() {
   const router = useRouter();
@@ -41,60 +122,55 @@ export default function WikiHomePage() {
   const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState<Category[]>([]);
   const [wikis, setWikis] = useState<Wiki[]>([]);
-
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
-
   const [catFilter, setCatFilter] = useState<string>(FILTER_ALL);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreWikis, setHasMoreWikis] = useState(true);
 
   async function fetchWikiPage(cursor?: string) {
     return safeSelect({
-      missingColumn: "wallpaper_id",
-      // fallback para schemas sem wallpaper_id
+      missingColumn: "wallpaper_slug",
       primary: () => {
-        let query = supabase
+        // Busca wallpaper_slug (TEXT) — não wallpaper_id (UUID) para não precisar JOIN
+        let q = supabase
           .from("wiki_pages")
-          .select("id,title,cover_url,category_id,created_at,updated_at,wallpaper_id")
+          .select(
+            "id,title,cover_url,category_id,created_at,updated_at,wallpaper_slug",
+          )
           .order("updated_at", { ascending: false })
           .limit(WIKI_PAGE_SIZE);
-
-        if (cursor) query = query.lt("updated_at", cursor);
-        return query;
+        if (cursor) q = q.lt("updated_at", cursor);
+        return q;
       },
       fallback: () => {
-        let query = supabase
+        let q = supabase
           .from("wiki_pages")
           .select("id,title,cover_url,category_id,created_at,updated_at")
           .order("updated_at", { ascending: false })
           .limit(WIKI_PAGE_SIZE);
-
-        if (cursor) query = query.lt("updated_at", cursor);
-        return query;
+        if (cursor) q = q.lt("updated_at", cursor);
+        return q;
       },
     });
   }
 
   async function load() {
     setLoading(true);
-
-    const catRes = await supabase
-      .from("wiki_categories")
-      .select("id,name,parent_id,created_at")
-      .order("name", { ascending: true });
-
-    const wikiRes = await fetchWikiPage();
+    const [catRes, wikiRes] = await Promise.all([
+      supabase
+        .from("wiki_categories")
+        .select("id,name,parent_id,created_at")
+        .order("name", { ascending: true }),
+      fetchWikiPage(),
+    ]);
 
     if (catRes.error) {
-      console.error("ERRO load categories:", catRes.error);
       toast.error(catRes.error.message);
       setLoading(false);
       return;
     }
-
     if (wikiRes.error) {
-      console.error("ERRO load wikis:", wikiRes.error);
       toast.error(wikiRes.error.message);
       setLoading(false);
       return;
@@ -109,17 +185,14 @@ export default function WikiHomePage() {
 
   async function loadMoreWikis() {
     if (loadingMore || !hasMoreWikis || wikis.length === 0) return;
-
     setLoadingMore(true);
     const lastUpdatedAt = wikis[wikis.length - 1]?.updated_at;
     const wikiRes = await fetchWikiPage(lastUpdatedAt);
-
     if (wikiRes.error) {
       toast.error(wikiRes.error.message);
       setLoadingMore(false);
       return;
     }
-
     const page = (wikiRes.data ?? []) as Wiki[];
     setWikis((prev) => [...prev, ...page]);
     setHasMoreWikis(page.length === WIKI_PAGE_SIZE);
@@ -127,11 +200,9 @@ export default function WikiHomePage() {
   }
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
-  // debounce simples
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search.trim()), 180);
     return () => clearTimeout(t);
@@ -142,15 +213,11 @@ export default function WikiHomePage() {
       toast.error("Selecione uma persona para criar wiki.");
       return;
     }
-
-    // ✅ padronizado: UMA rota
     router.push("/app/wiki/new");
   }
 
-  // categorias raiz (pastas principais)
   const rootCats = useMemo(() => cats.filter((c) => !c.parent_id), [cats]);
 
-  // conta wikis por categoria
   const wikiCountByCat = useMemo(() => {
     const map: Record<string, number> = {};
     for (const w of wikis) {
@@ -162,254 +229,264 @@ export default function WikiHomePage() {
 
   const filteredWikis = useMemo(() => {
     const q = searchDebounced.toLowerCase();
-
     return wikis.filter((w) => {
-      // filtro categoria
       if (catFilter === FILTER_NONE) {
         if (w.category_id) return false;
       } else if (catFilter !== FILTER_ALL) {
         if (w.category_id !== catFilter) return false;
       }
-
-      // busca
       if (!q) return true;
       return w.title.toLowerCase().includes(q);
     });
   }, [wikis, searchDebounced, catFilter]);
 
+  const activeCatName =
+    catFilter === FILTER_ALL
+      ? null
+      : catFilter === FILTER_NONE
+        ? "Sem pasta"
+        : (cats.find((c) => c.id === catFilter)?.name ?? null);
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:px-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-4 md:px-6">
       {/* Header */}
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold">Wiki</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            {activePersona
-              ? `Criando como: ${activePersona.name}`
-              : "Sem persona"}
-          </p>
+      <header className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-500/10">
+              <BookOpen className="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Wiki & Biblioteca</h1>
+              <p className="text-xs text-muted-foreground">
+                {wikis.length} artigo{wikis.length !== 1 ? "s" : ""} ·{" "}
+                {rootCats.length} pasta{rootCats.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-2xl"
+              onClick={() => void load()}
+              disabled={loading}
+              title="Atualizar"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="rounded-2xl"
+              onClick={() => router.push("/app/drafts")}
+            >
+              <FileText className="mr-1.5 h-3.5 w-3.5" /> Rascunhos
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-2xl"
+              disabled={!activePersona}
+              onClick={goNewWiki}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Nova wiki
+            </Button>
+          </div>
         </div>
 
-        {/* ✅ toolbar responsiva (mobile scroll) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] md:overflow-visible md:pb-0">
-          <Button
-            variant="secondary"
-            className="shrink-0 rounded-2xl"
-            onClick={() => router.push("/app/drafts")}
-            title="Rascunhos"
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Rascunhos
-          </Button>
-
-          <Button
-            variant="secondary"
-            className="shrink-0 rounded-2xl"
-            onClick={() => void load()}
-            title="Atualizar"
-            disabled={loading}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Atualizar
-          </Button>
-
-          <Button
-            className="shrink-0 rounded-2xl"
-            disabled={!activePersona}
-            onClick={goNewWiki}
-            title={
-              !activePersona ? "Selecione uma persona para criar" : "Nova wiki"
-            }
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Nova wiki
-          </Button>
-
-          <Button
-            type="button"
-            variant="secondary"
-            className="shrink-0 rounded-2xl"
-            onClick={() => router.push("/app/wiki/categories")}
-            title="Pastas"
-          >
-            <Folder className="mr-2 h-4 w-4" />
-            Pastas
-          </Button>
+        {/* Busca */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por título..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="rounded-2xl pl-9"
+          />
         </div>
       </header>
 
-      {/* Busca */}
-      <div className="space-y-2">
-        <Input
-          placeholder="Buscar wiki..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        {/* filtro por pasta */}
-        <div className="space-y-2">
-          {/* ✅ wrapper para não “vazar” no mobile */}
-          <div className="overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
-            <Segmented
-              type="single"
-              value={catFilter}
-              onValueChange={(v) => setCatFilter(v || FILTER_ALL)}
-              className="min-w-max"
+      {/* Pastas */}
+      {!searchDebounced && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Pastas</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-xl px-2 text-xs"
+              onClick={() => router.push("/app/wiki/categories")}
             >
-              <SegmentedItem value={FILTER_ALL}>Todas</SegmentedItem>
-              <SegmentedItem value={FILTER_NONE}>Sem pasta</SegmentedItem>
-
-              {rootCats.slice(0, 6).map((c) => (
-                <SegmentedItem key={c.id} value={c.id} title={c.name}>
-                  {c.name}
-                </SegmentedItem>
-              ))}
-            </Segmented>
+              Gerenciar
+            </Button>
           </div>
-        </div>
-      </div>
-
-      {/* Pastas (cards) */}
-      <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">Pastas</CardTitle>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="rounded-2xl"
-            onClick={() => router.push("/app/wiki/categories")}
-          >
-            Gerenciar
-          </Button>
-        </CardHeader>
-
-        <CardContent>
           {loading ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="h-20 animate-pulse rounded-2xl border bg-muted/40"
+                  className="h-16 animate-pulse rounded-2xl border bg-muted/40"
                 />
               ))}
             </div>
           ) : rootCats.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              Nenhuma pasta ainda. Abra <b>Gerenciar</b> para criar.
+            <div className="flex items-center gap-3 rounded-2xl border border-dashed p-4">
+              <Folder className="h-5 w-5 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                Nenhuma pasta.{" "}
+                <button
+                  className="text-primary underline"
+                  onClick={() => router.push("/app/wiki/categories")}
+                >
+                  Criar pasta
+                </button>
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {rootCats.slice(0, 6).map((c) => (
-                <button
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {rootCats.map((c) => (
+                <CategoryCard
                   key={c.id}
-                  type="button"
-                  className="rounded-2xl border p-3 text-left transition hover:bg-muted/30"
-                  onClick={() => router.push(`/app/wiki/categories/${c.id}`)}
-                >
-                  <div className="truncate text-sm font-medium">{c.name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {wikiCountByCat[c.id] ?? 0} wikis
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Wikis */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">
-            {catFilter === FILTER_ALL
-              ? "Wikis recentes"
-              : catFilter === FILTER_NONE
-                ? "Wikis sem pasta"
-                : "Wikis da pasta"}
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent>
-          {loading ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="aspect-square animate-pulse rounded-2xl border bg-muted/40"
+                  cat={c}
+                  count={wikiCountByCat[c.id] ?? 0}
+                  onClick={() => {
+                    setCatFilter(c.id);
+                    window.scrollTo({ top: 0 });
+                  }}
                 />
               ))}
             </div>
-          ) : filteredWikis.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              Nenhuma wiki encontrada.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {filteredWikis.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
-                  onClick={() => router.push(`/app/wiki/${w.id}`)}
-                >
-                  <div className="flex h-full flex-col">
-                    <div className="flex-1 bg-muted/40">
-                      {w.cover_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={w.cover_url}
-                          alt={w.title}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <WallpaperBackground wallpaperId={w.wallpaper_id} fallback="#dbeafe" className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-                          sem capa
-                        </WallpaperBackground>
-                      )}
-                    </div>
+          )}
+        </section>
+      )}
 
-                    <div className="p-3">
-                      <div className="truncate text-sm font-medium">
-                        {w.title}
-                      </div>
-                      <div className="mt-1 text-[11px] text-muted-foreground">
-                        Atualizado{" "}
-                        {new Date(w.updated_at).toLocaleDateString("pt-BR")}
-                      </div>
-                    </div>
-                  </div>
+      {/* Filtros ativos */}
+      {(catFilter !== FILTER_ALL || searchDebounced) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">Filtrando por:</span>
+          {activeCatName && (
+            <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2.5 py-0.5 text-xs font-medium">
+              <Folder className="h-3 w-3" /> {activeCatName}
+              <button
+                className="ml-1 hover:text-destructive"
+                onClick={() => setCatFilter(FILTER_ALL)}
+              >
+                ×
+              </button>
+            </span>
+          )}
+          {searchDebounced && (
+            <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2.5 py-0.5 text-xs font-medium">
+              <Search className="h-3 w-3" /> "{searchDebounced}"
+              <button
+                className="ml-1 hover:text-destructive"
+                onClick={() => setSearch("")}
+              >
+                ×
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Filtros rápidos por pasta */}
+      {!searchDebounced && rootCats.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
+          {(
+            [
+              { id: FILTER_ALL, label: "Todos" },
+              { id: FILTER_NONE, label: "Sem pasta" },
+              ...rootCats.slice(0, 8),
+            ] as Array<{ id: string; label?: string; name?: string }>
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setCatFilter(item.id)}
+              className={cn(
+                "shrink-0 rounded-xl border px-3 py-1.5 text-xs transition",
+                catFilter === item.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:border-primary/40 hover:bg-muted/40",
+              )}
+            >
+              {item.label ?? item.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Grid de wikis */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">
+            {catFilter === FILTER_ALL && !searchDebounced
+              ? "Recentes"
+              : (activeCatName ??
+                (searchDebounced ? `"${searchDebounced}"` : "Wikis"))}
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+              ({filteredWikis.length})
+            </span>
+          </h2>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 rounded-xl px-2 text-xs"
+            disabled={!activePersona}
+            onClick={goNewWiki}
+          >
+            <Plus className="mr-1 h-3 w-3" /> Nova
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-48 animate-pulse rounded-2xl border bg-muted/40"
+              />
+            ))}
+          </div>
+        ) : filteredWikis.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed p-10 text-center">
+            <BookOpen className="h-8 w-8 text-muted-foreground/30" />
+            <div>
+              <p className="text-sm font-medium">Nenhuma wiki encontrada</p>
+              {catFilter !== FILTER_ALL && (
+                <button
+                  className="mt-1 text-xs text-primary underline"
+                  onClick={() => setCatFilter(FILTER_ALL)}
+                >
+                  Ver todas
                 </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+              {filteredWikis.map((w) => (
+                <WikiCard
+                  key={w.id}
+                  w={w}
+                  onClick={() => router.push(`/app/wiki/${w.id}`)}
+                />
               ))}
             </div>
-          )}
-
-          {!loading && (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {hasMoreWikis ? (
-                <Button
-                  variant="secondary"
-                  className="w-full rounded-2xl"
-                  onClick={() => void loadMoreWikis()}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? "Carregando..." : "Ver mais"}
-                </Button>
-              ) : (
-                <div className="flex h-10 items-center justify-center rounded-2xl border text-sm text-muted-foreground">
-                  Você chegou ao fim
-                </div>
-              )}
+            {hasMoreWikis && (
               <Button
+                variant="secondary"
                 className="w-full rounded-2xl"
-                disabled={!activePersona}
-                onClick={goNewWiki}
+                onClick={() => void loadMoreWikis()}
+                disabled={loadingMore}
               >
-                Criar wiki
+                {loadingMore ? "Carregando..." : "Ver mais"}
               </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }
