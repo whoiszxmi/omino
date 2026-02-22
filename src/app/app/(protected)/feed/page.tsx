@@ -86,7 +86,6 @@ function PostCard({ p }: { p: Post }) {
           <WallpaperBackground
             wallpaperSlug={p.wallpaper_slug}
             className="h-full w-full"
-            mode="inline"
           />
         </div>
       )}
@@ -278,10 +277,19 @@ export default function FeedPage() {
 
     if (cursor) q = q.lt("created_at", cursor);
 
-    let { data, error } = await q;
+    // Usa any[] para evitar conflito de tipos entre query primária (com wallpaper_slug)
+    // e fallback (sem wallpaper_slug)
+    let rawData: any[] | null = null;
+    let fetchError: any = null;
+
+    {
+      const res = await q;
+      rawData = res.data as any[] | null;
+      fetchError = res.error;
+    }
 
     // Fallback se wallpaper_slug não existir na tabela
-    if (error && error.message?.includes("wallpaper_slug")) {
+    if (fetchError?.message?.includes("wallpaper_slug")) {
       const fallback = supabase
         .from("posts")
         .select(
@@ -289,20 +297,16 @@ export default function FeedPage() {
         )
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE);
-      if (cursor) {
-        const res = await fallback.lt("created_at", cursor);
-        data = res.data;
-        error = res.error;
-      } else {
-        const res = await fallback;
-        data = res.data;
-        error = res.error;
-      }
+      const res = cursor
+        ? await fallback.lt("created_at", cursor)
+        : await fallback;
+      rawData = res.data as any[] | null;
+      fetchError = res.error;
     }
 
-    if (error) throw error;
+    if (fetchError) throw fetchError;
 
-    return (data ?? []).map(
+    return (rawData ?? []).map(
       (row: any): Post => ({
         id: row.id,
         content: row.content,
