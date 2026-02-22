@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import PostComments from "@/app/app/(protected)/feed/PostComments";
-import { renderRichHtml } from "@/lib/render/richText";
+import { renderBodyHtml } from "@/lib/render/richText";
 import { parseDocContent } from "@/lib/content/docMeta";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { safeSelect } from "@/lib/supabase/fallback";
@@ -114,7 +114,7 @@ export default function PostViewPage() {
     [post?.content],
   );
   const safeHtml = useMemo(
-    () => renderRichHtml(post?.content ?? ""),
+    () => renderBodyHtml(post?.content ?? ""),
     [post?.content],
   );
   const postTitle = parsed.title?.trim() || "Post";
@@ -213,7 +213,7 @@ export default function PostViewPage() {
           )}
         </header>
 
-        <Card className="rounded-2xl border-white/20 bg-transparent shadow-sm backdrop-blur-[1px]">
+        <Card className="rounded-2xl border-white/20 bg-card/90 shadow-sm backdrop-blur-sm">
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -250,7 +250,7 @@ export default function PostViewPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-white/20 bg-transparent shadow-sm backdrop-blur-[1px]">
+        <Card className="rounded-2xl border-white/20 bg-card/90 shadow-sm backdrop-blur-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Comentários</CardTitle>
           </CardHeader>

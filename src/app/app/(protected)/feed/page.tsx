@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
@@ -15,7 +15,7 @@ import {
   type NormalizedHighlight,
   type HighlightTargetType,
 } from "@/lib/highlights/highlights";
-import { renderRichHtml } from "@/lib/render/richText";
+import { renderRichHtml, renderBodyHtml } from "@/lib/render/richText";
 import {
   BookOpen,
   ChevronDown,
@@ -71,11 +71,13 @@ function relTime(iso: string) {
 function PostCard({ p }: { p: Post }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
-  const preview = htmlToText(p.content);
+  // Para o preview, extrai o bodyHtml (sem a section wrapper) e converte para texto
+  const parsed = useMemo(() => parseDocContent(p.content), [p.content]);
+  const preview = htmlToText(parsed.bodyHtml || p.content);
 
   return (
     <Card className="overflow-hidden rounded-2xl transition hover:shadow-md">
-      {/* Faixa de wallpaper — CSS/SVG local, zero banda Supabase */}
+      {/* Faixa de wallpaper */}
       {p.wallpaper_slug && (
         <div
           className="h-16 w-full cursor-pointer"
@@ -111,6 +113,16 @@ function PostCard({ p }: { p: Post }) {
           </span>
         </div>
 
+        {/* Título do post, se existir */}
+        {parsed.title && (
+          <p
+            className="cursor-pointer text-sm font-semibold leading-snug"
+            onClick={() => router.push(`/app/post/${p.id}`)}
+          >
+            {parsed.title}
+          </p>
+        )}
+
         {/* Preview colapsado */}
         {!expanded && (
           <p
@@ -125,7 +137,7 @@ function PostCard({ p }: { p: Post }) {
         {expanded && (
           <div
             className="prose prose-sm max-w-none break-words text-sm"
-            dangerouslySetInnerHTML={{ __html: renderRichHtml(p.content) }}
+            dangerouslySetInnerHTML={{ __html: renderBodyHtml(p.content) }}
             onClick={(e) => e.stopPropagation()}
           />
         )}
@@ -155,7 +167,7 @@ function PostCard({ p }: { p: Post }) {
           <HighlightButtonGroup
             targetType="post"
             targetId={p.id}
-            title={p.parsedTitle || `Post de ${p.persona.name}`}
+            title={p.parsedTitle || "Post"}
           />
           <Button
             size="sm"
@@ -356,6 +368,10 @@ export default function FeedPage() {
   useEffect(() => {
     void loadInitial();
     void loadHighlights();
+    // Refresh automático a cada 60s para garantir que posts novos aparecem
+    // mesmo se o realtime falhar
+    const interval = setInterval(() => void loadInitial(), 60_000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

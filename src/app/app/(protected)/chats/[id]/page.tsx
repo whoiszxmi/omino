@@ -904,7 +904,6 @@ export default function ChatRoomPage() {
               folder="chats"
               imageInsertMode="both"
               enableTables={false}
-              aminoStyle
             />
           </div>
 

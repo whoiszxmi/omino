@@ -60,6 +60,21 @@ function fixDocSectionColors(html: string): string {
 }
 
 /**
+ * Renderiza apenas o corpo do conteúdo, sem o wrapper <section data-doc-bg>.
+ * Use isto nas páginas de visualização de post/wiki onde o fundo já é
+ * controlado pelo WallpaperBackground ou pela cor do wallpaper da página.
+ */
+export function renderBodyHtml(inputHtml: string): string {
+  const raw = inputHtml || "";
+  // remove o wrapper <section data-doc-bg=...>...</section> se existir
+  const match = raw.match(
+    /^\s*<section\s+[^>]*data-doc-bg="[^"]*"[^>]*>([\s\S]*)<\/section>\s*$/i,
+  );
+  const body = match ? match[1].trim() : raw;
+  return renderRichHtml(body);
+}
+
+/**
  * Converte tags estilo Amino e sanitiza HTML.
  * Também corrige cores de texto em sections com fundo escuro/claro.
  */

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-import { renderRichHtml } from "@/lib/render/richText";
+import { renderBodyHtml } from "@/lib/render/richText";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { safeSelect } from "@/lib/supabase/fallback";
@@ -230,7 +230,7 @@ export default function WikiViewPage() {
   const processedHtml = useMemo(
     () =>
       wiki?.content_html
-        ? injectHeadingIds(renderRichHtml(wiki.content_html))
+        ? injectHeadingIds(renderBodyHtml(wiki.content_html))
         : "",
     [wiki?.content_html],
   );

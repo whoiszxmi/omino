@@ -14,22 +14,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/editor/RichTextEditor";
-import BackgroundPresetPicker from "@/components/editor/BackgroundPresetPicker";
 import DraftStatusBar from "@/components/drafts/DraftStatusBar";
 import DraftRestoreDialog from "@/components/drafts/DraftRestoreDialog";
 import { useDraftAutosave } from "@/lib/drafts/useDraftAutosave";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
-import { isMissingColumnError } from "@/lib/supabase/isMissingColumnError";
 import { safeSelect } from "@/lib/supabase/fallback";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { renderBodyHtml } from "@/lib/render/richText";
+import { Eye, EyeOff } from "lucide-react";
 
 type PostRow = {
   id: string;
   content: string;
   created_at: string;
   persona_id: string;
-  wallpaper_id?: string | null;
+  wallpaper_slug?: string | null;
   personas?: { id: string; name: string; avatar_url: string | null } | null;
 };
 
@@ -48,7 +49,8 @@ export default function PostEditPage() {
   const [backgroundColor, setBackgroundColor] = useState<string>(
     DEFAULT_DOC_BACKGROUND,
   );
-  const [wallpaperId, setWallpaperId] = useState<string | null>(null);
+  const [wallpaperSlug, setWallpaperSlug] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const canEdit = useMemo(
     () => !!post && !!activePersona && post.persona_id === activePersona.id,
@@ -68,12 +70,11 @@ export default function PostEditPage() {
       contentHtml: post?.content ?? "",
       coverUrl: null,
     },
-    value: { title, contentHtml, coverUrl: backgroundColor },
+    value: { title, contentHtml, coverUrl: wallpaperSlug ?? backgroundColor },
     enabled: !!post,
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);
-      setBackgroundColor(draft.coverUrl ?? DEFAULT_DOC_BACKGROUND);
     },
   });
 
@@ -81,17 +82,21 @@ export default function PostEditPage() {
     async function load() {
       setLoading(true);
       const query = await safeSelect({
-        missingColumn: "wallpaper_id",
+        missingColumn: "wallpaper_slug",
         primary: () =>
           supabase
             .from("posts")
-            .select("id,content,created_at,persona_id,wallpaper_id,personas(id,name,avatar_url)")
+            .select(
+              "id,content,created_at,persona_id,wallpaper_slug,personas(id,name,avatar_url)",
+            )
             .eq("id", postId)
             .maybeSingle(),
         fallback: () =>
           supabase
             .from("posts")
-            .select("id,content,created_at,persona_id,personas(id,name,avatar_url)")
+            .select(
+              "id,content,created_at,persona_id,personas(id,name,avatar_url)",
+            )
             .eq("id", postId)
             .maybeSingle(),
       });
@@ -115,7 +120,7 @@ export default function PostEditPage() {
       setTitle(parsed.title);
       setContentHtml(parsed.bodyHtml);
       setBackgroundColor(parsed.backgroundColor);
-      setWallpaperId(row.wallpaper_id ?? null);
+      setWallpaperSlug(row.wallpaper_slug ?? null);
       setLoading(false);
     }
 
@@ -130,38 +135,26 @@ export default function PostEditPage() {
     if (!title.trim()) return toast.error("Título é obrigatório.");
     if (!canSave) return toast.error("Escreva alguma coisa antes de salvar.");
 
-    const sanitized = contentHtml.trim();
-
     const payload = buildDocContent({
       title,
-      bodyHtml: sanitized,
+      bodyHtml: contentHtml.trim(),
       backgroundColor,
     });
-    const uiThemePayload = {
-      background: wallpaperId
-        ? { kind: "wallpaper", value: wallpaperId }
-        : { kind: "solid", value: backgroundColor },
-      foreground: "auto",
-    };
 
     setSaving(true);
     try {
       let updateRes = await supabase
         .from("posts")
-        .update({ content: payload, wallpaper_id: wallpaperId, ui_theme: uiThemePayload })
+        .update({ content: payload, wallpaper_slug: wallpaperSlug })
         .eq("id", post.id);
-      if (isMissingColumnError(updateRes.error, "ui_theme")) {
-        updateRes = await supabase
-          .from("posts")
-          .update({ content: payload, wallpaper_id: wallpaperId })
-          .eq("id", post.id);
-      }
-      if (isMissingColumnError(updateRes.error, "wallpaper_id")) {
+
+      if (updateRes.error?.code === "42703") {
         updateRes = await supabase
           .from("posts")
           .update({ content: payload })
           .eq("id", post.id);
       }
+
       if (updateRes.error) throw updateRes.error;
 
       await drafts.discard();
@@ -208,9 +201,7 @@ export default function PostEditPage() {
             <CardTitle className="text-base">Sem Permissão</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <div>
-              Para editar, você precisa estar usando a persona dona desse post.
-            </div>
+            <div>Para editar, use a persona dona desse post.</div>
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -233,7 +224,7 @@ export default function PostEditPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-4 p-4 md:p-6">
       <header className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h1 className="truncate text-xl font-semibold">Editar post</h1>
@@ -241,13 +232,28 @@ export default function PostEditPage() {
             Editando como: {activePersona?.name ?? "—"}
           </p>
         </div>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          onClick={() => router.push(`/app/post/${post.id}`)}
-        >
-          Voltar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 rounded-2xl"
+            onClick={() => setShowPreview((v) => !v)}
+          >
+            {showPreview ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+            {showPreview ? "Editor" : "Preview"}
+          </Button>
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push(`/app/post/${post.id}`)}
+          >
+            Voltar
+          </Button>
+        </div>
       </header>
 
       <DraftStatusBar
@@ -257,44 +263,65 @@ export default function PostEditPage() {
         onDiscard={() => drafts.discard()}
       />
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Conteúdo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Input
-            placeholder="Título do post"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-
-          <BackgroundPresetPicker
-            value={backgroundColor}
-            onChange={setBackgroundColor}
-          />
-
-          <WallpaperPicker value={wallpaperId} onChange={setWallpaperId} label="Wallpaper do post" />
-
-          <div className="rounded-2xl p-2" style={{ backgroundColor }}>
-            <RichTextEditor
-              valueHtml={contentHtml}
-              onChangeHtml={setContentHtml}
-              placeholder="Edite seu post..."
-              folder="posts"
-              imageInsertMode="both"
-              enableTables={false}
+      {showPreview ? (
+        <WallpaperBackground
+          wallpaperSlug={wallpaperSlug}
+          fallback={backgroundColor}
+          className="min-h-[400px] rounded-2xl p-6"
+        >
+          <div className="rounded-2xl bg-card/90 p-6 shadow-sm backdrop-blur-sm">
+            <h1 className="mb-2 text-2xl font-bold">{title || "Sem título"}</h1>
+            <div
+              className="prose prose-sm max-w-none break-words"
+              dangerouslySetInnerHTML={{ __html: renderBodyHtml(contentHtml) }}
             />
           </div>
+        </WallpaperBackground>
+      ) : (
+        <Card className="rounded-2xl">
+          <CardContent className="space-y-4 pt-5">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Título
+              </label>
+              <Input
+                placeholder="Título do post"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
 
-          <Button
-            className="w-full rounded-2xl"
-            onClick={() => void save()}
-            disabled={saving || !canSave}
-          >
-            {saving ? "Salvando..." : "Salvar alterações"}
-          </Button>
-        </CardContent>
-      </Card>
+            <WallpaperPicker
+              value={wallpaperSlug}
+              onChange={setWallpaperSlug}
+              label="Plano de fundo do post"
+            />
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Conteúdo
+              </label>
+              <RichTextEditor
+                valueHtml={contentHtml}
+                onChangeHtml={setContentHtml}
+                placeholder="Edite seu post..."
+                folder="posts"
+                imageInsertMode="both"
+                enableTables={false}
+              />
+            </div>
+
+            <Button
+              className="w-full rounded-2xl"
+              onClick={() => void save()}
+              disabled={saving || !canSave}
+            >
+              {saving ? "Salvando..." : "Salvar alterações"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <DraftRestoreDialog
         open={!!drafts.restoreCandidate}
