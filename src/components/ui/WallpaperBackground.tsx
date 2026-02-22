@@ -1,15 +1,9 @@
 /**
  * WallpaperBackground.tsx
  *
- * Renderiza um fundo a partir de um wallpaper slug (campo `wallpaper_slug` nas tabelas).
- * NÃO usa o `wallpaper_id` (UUID FK) — esse é para JOIN com a tabela do banco.
- * O slug é resolvido localmente (catálogo CSS/SVG embutido = zero banda).
- *
- * Props:
- *   wallpaperSlug  — valor do campo `wallpaper_slug` da entidade (post, wiki, chat)
- *   fallback       — cor CSS de fallback quando sem wallpaper
- *   mode           — "fullscreen" (padrão): usa layer fixo que cobre a tela toda
- *                  — "inline": aplica o background diretamente no div (para thumbnails)
+ * Modos:
+ *   "page"   — fundo absoluto contido dentro do wrapper (não vaza)
+ *   "inline" — background direto no div (thumbnails/picker)
  */
 
 import { CSSProperties, ReactNode } from "react";
@@ -25,7 +19,6 @@ export function getWallpaperStyle(
 ): CSSProperties | null {
   const wallpaper = getWallpaperBySlug(wallpaperSlug);
   if (!wallpaper) return null;
-
   if (wallpaper.kind === "css" && wallpaper.css) {
     return {
       backgroundImage: wallpaper.css,
@@ -34,7 +27,6 @@ export function getWallpaperStyle(
       backgroundRepeat: "no-repeat",
     };
   }
-
   if (wallpaper.kind === "svg" && wallpaper.svg) {
     return {
       backgroundImage: `url(${toSvgDataUri(wallpaper.svg)})`,
@@ -43,7 +35,6 @@ export function getWallpaperStyle(
       backgroundRepeat: "no-repeat",
     };
   }
-
   if (wallpaper.kind === "image" && wallpaper.src) {
     return {
       backgroundImage: `url(${wallpaper.src})`,
@@ -52,27 +43,21 @@ export function getWallpaperStyle(
       backgroundRepeat: "no-repeat",
     };
   }
-
   return null;
 }
 
 type WallpaperBackgroundProps = {
-  /** Slug do wallpaper — campo `wallpaper_slug` nas tabelas posts/wiki_pages/chats */
   wallpaperSlug?: string | null;
-  /**
-   * @deprecated Use wallpaperSlug. Aceito para compatibilidade com código antigo
-   * que passava wallpaperId como string slug (antes de ter a tabela wallpapers).
-   */
+  /** @deprecated use wallpaperSlug */
   wallpaperId?: string | null;
   fallback?: string;
   className?: string;
   children?: ReactNode;
   /**
-   * "fullscreen" (padrão para páginas): renderiza um layer fixo atrás da página
-   *   inteira — o wallpaper cobre a tela toda, inclusive atrás dos cards.
-   * "inline": aplica o background diretamente no div — bom para thumbnails/picker.
+   * "page" (padrão) — fundo absoluto contido no wrapper, não vaza
+   * "inline"        — background direto no div (thumbnails/picker)
    */
-  mode?: "fullscreen" | "inline";
+  mode?: "page" | "fullscreen" | "inline";
 };
 
 export default function WallpaperBackground({
@@ -81,20 +66,19 @@ export default function WallpaperBackground({
   fallback,
   className,
   children,
-  mode = "fullscreen",
+  mode = "page",
 }: WallpaperBackgroundProps) {
   const slug = wallpaperSlug ?? wallpaperId ?? null;
   const wallpaperStyle = getWallpaperStyle(slug);
   const hasWallpaper = !!wallpaperStyle;
 
-  // ── modo inline (thumbnails, picker, etc.) ────────────────────────────────
   if (mode === "inline") {
     return (
       <div
         className={cn(className)}
         style={{
-          ...(fallback ? { backgroundColor: fallback } : null),
-          ...(wallpaperStyle ?? null),
+          ...(fallback ? { backgroundColor: fallback } : {}),
+          ...(wallpaperStyle ?? {}),
         }}
       >
         {children}
@@ -102,25 +86,16 @@ export default function WallpaperBackground({
     );
   }
 
-  // ── modo fullscreen (páginas de post/wiki/chat) ───────────────────────────
   return (
-    <div className={cn("relative", className)}>
-      {/* Layer de fundo fixo — cobre toda a viewport */}
-      {hasWallpaper && (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 z-0 transition-all duration-500"
-          style={wallpaperStyle}
-        />
-      )}
-      {!hasWallpaper && fallback && (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 z-0"
-          style={{ backgroundColor: fallback }}
-        />
-      )}
-      {/* Conteúdo acima do layer de fundo */}
+    <div className={cn("relative overflow-hidden", className)}>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          ...(fallback && !hasWallpaper ? { backgroundColor: fallback } : {}),
+          ...(hasWallpaper ? wallpaperStyle! : {}),
+        }}
+      />
       <div className="relative z-10">{children}</div>
     </div>
   );

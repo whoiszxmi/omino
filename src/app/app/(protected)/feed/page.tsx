@@ -278,7 +278,28 @@ export default function FeedPage() {
 
     if (cursor) q = q.lt("created_at", cursor);
 
-    const { data, error } = await q;
+    let { data, error } = await q;
+
+    // Fallback se wallpaper_slug não existir na tabela
+    if (error && error.message?.includes("wallpaper_slug")) {
+      const fallback = supabase
+        .from("posts")
+        .select(
+          "id, content, created_at, persona_id, personas(name, avatar_url)",
+        )
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
+      if (cursor) {
+        const res = await fallback.lt("created_at", cursor);
+        data = res.data;
+        error = res.error;
+      } else {
+        const res = await fallback;
+        data = res.data;
+        error = res.error;
+      }
+    }
+
     if (error) throw error;
 
     return (data ?? []).map(

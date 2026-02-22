@@ -10,12 +10,19 @@ import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
 import { renderRichHtml } from "@/lib/render/richText";
 import UserCardModal from "@/components/profile/UserCardModal";
-import { X } from "lucide-react";
+import { Settings, X } from "lucide-react";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 import SubchatList from "@/components/subchats/SubchatList";
 import SubchatSidebar from "@/components/subchats/SubchatSidebar";
 import CreateSubchatDialog from "@/components/subchats/CreateSubchatDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type UiMessage = {
   id: string;
@@ -128,6 +135,7 @@ export default function ChatRoomPage() {
   const [chatCreatedBy, setChatCreatedBy] = useState<string | null>(null);
   const [showCreateSubchat, setShowCreateSubchat] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const [hasReplyToColumn, setHasReplyToColumn] = useState(true);
   const [hasMore, setHasMore] = useState(true);
@@ -693,9 +701,62 @@ export default function ChatRoomPage() {
         />
       )}
 
+      {/* Diálogo de configurações do chat */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Configurações: {chatTitle}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <WallpaperPicker
+              value={chatWallpaperSlug}
+              onChange={async (slug) => {
+                setChatWallpaperSlug(slug);
+                const { error } = await supabase
+                  .from("chats")
+                  .update({ wallpaper_slug: slug })
+                  .eq("id", chatId);
+                if (error) toast.error(error.message);
+                else toast.success("Wallpaper salvo!");
+              }}
+              label="Cenário / Wallpaper"
+            />
+            {currentUserId && chatCreatedBy === currentUserId && (
+              <Button
+                variant="destructive"
+                className="w-full rounded-xl"
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Excluir "${chatTitle}"? Esta ação não pode ser desfeita.`,
+                    )
+                  ) {
+                    void supabase
+                      .from("chats")
+                      .delete()
+                      .eq("id", chatId)
+                      .then(({ error }) => {
+                        if (error) {
+                          toast.error(error.message);
+                          return;
+                        }
+                        toast.success("Chat excluído.");
+                        setShowSettings(false);
+                        router.push("/app/chats");
+                      });
+                  }
+                }}
+              >
+                Excluir chat
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Fix #3: flex-col + h-dvh → o listRef com min-h-0 permite scroll real no mobile */}
       <div className="mx-auto flex h-dvh w-full max-w-[1200px] flex-col">
-        <header className="shrink-0 border-b bg-background/90 backdrop-blur">
+        <header className="relative shrink-0 border-b bg-background/90 backdrop-blur">
           <div className="flex items-center justify-between px-4 py-3 md:px-6">
             <Button
               variant="secondary"
@@ -712,270 +773,279 @@ export default function ChatRoomPage() {
                   : "Selecione uma persona"}
               </p>
             </div>
-            <div className="w-20" />
+            {/* Botões de ação — settings + regiões */}
+            <div className="flex items-center gap-1.5">
+              {currentUserId && chatCreatedBy === currentUserId && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-xl"
+                  title="Configurações do chat"
+                  onClick={() => setShowSettings(true)}
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
+              {/* SubchatSidebar injecta o botão "Regiões" aqui */}
+              <SubchatSidebar
+                currentChatId={chatId}
+                parentId={chatParentId}
+                createdBy={chatCreatedBy}
+              />
+            </div>
           </div>
         </header>
 
-        {/* Layout: sidebar (desktop) + área principal */}
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Sidebar de navegação entre regiões/subchats */}
-          <SubchatSidebar
-            currentChatId={chatId}
-            parentId={chatParentId}
-            createdBy={chatCreatedBy}
-          />
+        {/* Área principal: mensagens + input (sem sidebar lateral) */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Área de mensagens com scroll */}
+          <div
+            ref={listRef}
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+          >
+            {/* Lista de subchats — aparece no topo do chat pai */}
+            {!chatParentId && (
+              <SubchatList
+                parentId={chatId}
+                createdBy={chatCreatedBy}
+                currentUserId={currentUserId}
+                onCreateSubchat={() => setShowCreateSubchat(true)}
+              />
+            )}
+            {!chatId || !isUuid(chatId) ? (
+              <p className="text-sm text-muted-foreground">Chat inválido.</p>
+            ) : loading ? (
+              <p className="text-sm text-muted-foreground">Carregando...</p>
+            ) : (
+              <>
+                {hasMore ? (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="secondary"
+                      className="rounded-2xl"
+                      onClick={() => void loadOlder()}
+                      disabled={loadingMore}
+                    >
+                      {loadingMore
+                        ? "Carregando mensagens antigas..."
+                        : "Carregar mensagens anteriores"}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-muted-foreground">
+                    Você chegou no começo
+                  </p>
+                )}
 
-          {/* Área principal: mensagens + input */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Área de mensagens com scroll */}
-            <div
-              ref={listRef}
-              className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
-            >
-              {/* Lista de subchats — aparece no topo do chat pai */}
-              {!chatParentId && (
-                <SubchatList
-                  parentId={chatId}
-                  createdBy={chatCreatedBy}
-                  currentUserId={currentUserId}
-                  onCreateSubchat={() => setShowCreateSubchat(true)}
-                />
-              )}
-              {!chatId || !isUuid(chatId) ? (
-                <p className="text-sm text-muted-foreground">Chat inválido.</p>
-              ) : loading ? (
-                <p className="text-sm text-muted-foreground">Carregando...</p>
-              ) : (
-                <>
-                  {hasMore ? (
-                    <div className="flex justify-center">
-                      <Button
-                        variant="secondary"
-                        className="rounded-2xl"
-                        onClick={() => void loadOlder()}
-                        disabled={loadingMore}
-                      >
-                        {loadingMore
-                          ? "Carregando mensagens antigas..."
-                          : "Carregar mensagens anteriores"}
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="text-center text-xs text-muted-foreground">
-                      Você chegou no começo
-                    </p>
-                  )}
+                {pendingNewCount > 0 && (
+                  <div className="sticky top-2 z-20 flex justify-center">
+                    <button
+                      type="button"
+                      className="rounded-full border bg-background px-3 py-1 text-xs shadow"
+                      onClick={() => scrollToBottom(true)}
+                    >
+                      {pendingNewCount} novas mensagens
+                    </button>
+                  </div>
+                )}
 
-                  {pendingNewCount > 0 && (
-                    <div className="sticky top-2 z-20 flex justify-center">
-                      <button
-                        type="button"
-                        className="rounded-full border bg-background px-3 py-1 text-xs shadow"
-                        onClick={() => scrollToBottom(true)}
-                      >
-                        {pendingNewCount} novas mensagens
-                      </button>
-                    </div>
-                  )}
-
-                  {grouped.map((item, idx) => {
-                    if (item.kind === "day") {
-                      return (
-                        <div key={`day-${idx}`} className="flex justify-center">
-                          <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
-                            {item.label}
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    const safe = DOMPurify.sanitize(
-                      renderRichHtml(item.m.content),
-                    );
-                    const avatar =
-                      item.m.persona.user_avatar ??
-                      item.m.persona.avatar_url ??
-                      null;
-
+                {grouped.map((item, idx) => {
+                  if (item.kind === "day") {
                     return (
-                      <div
-                        key={item.m.id}
-                        data-message-id={item.m.id}
-                        className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
-                      >
-                        <div
-                          className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"} ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
-                        >
-                          <UserCardModal
-                            user={{
-                              username: item.m.persona.username,
-                              display_name:
-                                item.m.persona.display_name ??
-                                item.m.persona.name,
-                              avatar_url: avatar,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className="mb-2 flex items-center gap-2 text-left"
-                            >
-                              <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
-                                {avatar && (
-                                  <img
-                                    src={avatar}
-                                    alt="avatar"
-                                    className="h-full w-full object-cover"
-                                  />
-                                )}
-                              </div>
-                              <span className="text-xs font-semibold opacity-80">
-                                {item.m.persona.display_name ??
-                                  item.m.persona.name}
-                              </span>
-                            </button>
-                          </UserCardModal>
-
-                          <div className="mb-2">
-                            <button
-                              type="button"
-                              className="text-xs opacity-80 underline"
-                              onClick={() =>
-                                setReplyTo({
-                                  id: item.m.id,
-                                  name:
-                                    item.m.persona.display_name ??
-                                    item.m.persona.name,
-                                  preview: htmlToPlainText(
-                                    item.m.content,
-                                  ).slice(0, 80),
-                                })
-                              }
-                            >
-                              Responder
-                            </button>
-                          </div>
-
-                          {hasReplyToColumn && item.m.reply_to && (
-                            <button
-                              type="button"
-                              className="mb-2 block w-full rounded-xl border border-border/70 bg-background/60 px-2 py-1 text-left text-xs text-muted-foreground"
-                              onClick={() =>
-                                void resolveReplyMessage(
-                                  item.m.reply_to as string,
-                                )
-                              }
-                            >
-                              {replyLookup[item.m.reply_to] ? (
-                                <>
-                                  Resposta a @
-                                  {replyLookup[item.m.reply_to].author}:{" "}
-                                  {replyLookup[item.m.reply_to].preview}
-                                </>
-                              ) : (
-                                "Resposta a uma mensagem (toque para carregar)"
-                              )}
-                            </button>
-                          )}
-
-                          <div
-                            className="prose max-w-none break-words text-sm"
-                            dangerouslySetInnerHTML={{ __html: safe }}
-                          />
-                        </div>
+                      <div key={`day-${idx}`} className="flex justify-center">
+                        <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                          {item.label}
+                        </span>
                       </div>
                     );
-                  })}
-                </>
-              )}
-            </div>
-            {/* fim listRef */}
-
-            <div className="shrink-0 border-t bg-background/90 backdrop-blur p-3 md:p-4">
-              {typingUsers.length > 0 && (
-                <div className="mb-2 text-xs text-muted-foreground">
-                  {typingUsers.join(", ")}{" "}
-                  {typingUsers.length === 1
-                    ? "está digitando…"
-                    : "estão digitando…"}
-                </div>
-              )}
-
-              {replyTo && (
-                <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold">
-                      Respondendo a {replyTo.name}
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {replyTo.preview}
-                    </div>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="h-8 w-8 rounded-2xl"
-                    onClick={() => setReplyTo(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-
-              <div className="rounded-2xl border bg-background p-2">
-                <RichTextEditor
-                  valueHtml={inputHtml}
-                  onChangeHtml={(v) => {
-                    setInputHtml(v);
-                    if (!activePersona || !typingChannelRef.current) return;
-                    if (Date.now() - typingTrackThrottleRef.current > 800) {
-                      typingTrackThrottleRef.current = Date.now();
-                      void typingChannelRef.current.track({
-                        typing: true,
-                        personaId: activePersona.id,
-                        personaName: activePersona.name,
-                        ts: Date.now(),
-                      } satisfies TypingPresence);
-                    }
-                    if (typingStopTimeoutRef.current)
-                      window.clearTimeout(typingStopTimeoutRef.current);
-                    typingStopTimeoutRef.current = window.setTimeout(() => {
-                      if (!typingChannelRef.current || !activePersona) return;
-                      void typingChannelRef.current.track({
-                        typing: false,
-                        personaId: activePersona.id,
-                        personaName: activePersona.name,
-                        ts: Date.now(),
-                      } satisfies TypingPresence);
-                    }, 800);
-                  }}
-                  placeholder={
-                    activePersona
-                      ? `Mensagem como ${activePersona.name}`
-                      : "Selecione uma persona"
                   }
-                  compact
-                  bucket="media"
-                  folder="chats"
-                  imageInsertMode="both"
-                  enableTables={false}
-                />
-              </div>
 
-              <div className="mt-2 flex justify-end">
+                  const safe = DOMPurify.sanitize(
+                    renderRichHtml(item.m.content),
+                  );
+                  const avatar =
+                    item.m.persona.user_avatar ??
+                    item.m.persona.avatar_url ??
+                    null;
+
+                  return (
+                    <div
+                      key={item.m.id}
+                      data-message-id={item.m.id}
+                      className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"} ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
+                      >
+                        <UserCardModal
+                          user={{
+                            username: item.m.persona.username,
+                            display_name:
+                              item.m.persona.display_name ??
+                              item.m.persona.name,
+                            avatar_url: avatar,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="mb-2 flex items-center gap-2 text-left"
+                          >
+                            <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
+                              {avatar && (
+                                <img
+                                  src={avatar}
+                                  alt="avatar"
+                                  className="h-full w-full object-cover"
+                                />
+                              )}
+                            </div>
+                            <span className="text-xs font-semibold opacity-80">
+                              {item.m.persona.display_name ??
+                                item.m.persona.name}
+                            </span>
+                          </button>
+                        </UserCardModal>
+
+                        <div className="mb-2">
+                          <button
+                            type="button"
+                            className="text-xs opacity-80 underline"
+                            onClick={() =>
+                              setReplyTo({
+                                id: item.m.id,
+                                name:
+                                  item.m.persona.display_name ??
+                                  item.m.persona.name,
+                                preview: htmlToPlainText(item.m.content).slice(
+                                  0,
+                                  80,
+                                ),
+                              })
+                            }
+                          >
+                            Responder
+                          </button>
+                        </div>
+
+                        {hasReplyToColumn && item.m.reply_to && (
+                          <button
+                            type="button"
+                            className="mb-2 block w-full rounded-xl border border-border/70 bg-background/60 px-2 py-1 text-left text-xs text-muted-foreground"
+                            onClick={() =>
+                              void resolveReplyMessage(
+                                item.m.reply_to as string,
+                              )
+                            }
+                          >
+                            {replyLookup[item.m.reply_to] ? (
+                              <>
+                                Resposta a @
+                                {replyLookup[item.m.reply_to].author}:{" "}
+                                {replyLookup[item.m.reply_to].preview}
+                              </>
+                            ) : (
+                              "Resposta a uma mensagem (toque para carregar)"
+                            )}
+                          </button>
+                        )}
+
+                        <div
+                          className="prose max-w-none break-words text-sm"
+                          dangerouslySetInnerHTML={{ __html: safe }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+          {/* fim listRef */}
+
+          <div className="shrink-0 border-t bg-background/90 backdrop-blur p-3 md:p-4">
+            {typingUsers.length > 0 && (
+              <div className="mb-2 text-xs text-muted-foreground">
+                {typingUsers.join(", ")}{" "}
+                {typingUsers.length === 1
+                  ? "está digitando…"
+                  : "estão digitando…"}
+              </div>
+            )}
+
+            {replyTo && (
+              <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold">
+                    Respondendo a {replyTo.name}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {replyTo.preview}
+                  </div>
+                </div>
                 <Button
-                  className="rounded-2xl"
-                  onClick={() => void sendMessage()}
-                  disabled={!activePersona || sending}
+                  size="icon"
+                  variant="secondary"
+                  className="h-8 w-8 rounded-2xl"
+                  onClick={() => setReplyTo(null)}
                 >
-                  {sending ? "Enviando..." : "Enviar"}
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
+            )}
+
+            <div className="rounded-2xl border bg-background p-2">
+              <RichTextEditor
+                valueHtml={inputHtml}
+                onChangeHtml={(v) => {
+                  setInputHtml(v);
+                  if (!activePersona || !typingChannelRef.current) return;
+                  if (Date.now() - typingTrackThrottleRef.current > 800) {
+                    typingTrackThrottleRef.current = Date.now();
+                    void typingChannelRef.current.track({
+                      typing: true,
+                      personaId: activePersona.id,
+                      personaName: activePersona.name,
+                      ts: Date.now(),
+                    } satisfies TypingPresence);
+                  }
+                  if (typingStopTimeoutRef.current)
+                    window.clearTimeout(typingStopTimeoutRef.current);
+                  typingStopTimeoutRef.current = window.setTimeout(() => {
+                    if (!typingChannelRef.current || !activePersona) return;
+                    void typingChannelRef.current.track({
+                      typing: false,
+                      personaId: activePersona.id,
+                      personaName: activePersona.name,
+                      ts: Date.now(),
+                    } satisfies TypingPresence);
+                  }, 800);
+                }}
+                placeholder={
+                  activePersona
+                    ? `Mensagem como ${activePersona.name}`
+                    : "Selecione uma persona"
+                }
+                compact
+                bucket="media"
+                folder="chats"
+                imageInsertMode="both"
+                enableTables={false}
+              />
             </div>
-            {/* fim shrink-0 input */}
+
+            <div className="mt-2 flex justify-end">
+              <Button
+                className="rounded-2xl"
+                onClick={() => void sendMessage()}
+                disabled={!activePersona || sending}
+              >
+                {sending ? "Enviando..." : "Enviar"}
+              </Button>
+            </div>
           </div>
-          {/* fim flex-col área principal */}
+          {/* fim shrink-0 input */}
         </div>
-        {/* fim flex sidebar+main */}
+        {/* fim flex-col área principal */}
       </div>
       {/* fim h-dvh outer */}
     </WallpaperBackground>

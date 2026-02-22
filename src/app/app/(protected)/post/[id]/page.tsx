@@ -161,9 +161,9 @@ export default function PostViewPage() {
     <WallpaperBackground
       wallpaperSlug={wallpaperSlug}
       fallback={parsed.backgroundColor}
-      className="min-h-dvh w-full px-3 py-4 sm:px-4 md:px-6 md:py-8"
+      className="min-h-dvh w-full"
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-4 md:px-6 md:py-8">
         <header className="flex items-center justify-between gap-2">
           <Button
             variant="secondary"

@@ -24,6 +24,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import MyChatsList, { type MyChatItem } from "@/components/chats/MyChatsList";
+import WallpaperPicker from "@/components/editor/WallpaperPicker";
 import { cn } from "@/lib/utils";
 
 // Schema real de `chats`:
@@ -107,6 +108,9 @@ export default function ChatsPage() {
   );
   const [inviting, setInviting] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [chatWallpaperSlug, setChatWallpaperSlug] = useState<string | null>(
+    null,
+  );
 
   async function loadChats() {
     setLoading(true);
@@ -150,6 +154,7 @@ export default function ChatsPage() {
     setInviteQuery("");
     setInviteResults([]);
     setSelectedInviteIds(new Set());
+    setChatWallpaperSlug(null);
     if (nextType) setCreateType(nextType);
   }
 
@@ -238,6 +243,13 @@ export default function ChatsPage() {
       if (!chatId) {
         toast.error("Chat público não foi criado.");
         return;
+      }
+      // Salva wallpaper_slug se selecionado
+      if (chatWallpaperSlug) {
+        await supabase
+          .from("chats")
+          .update({ wallpaper_slug: chatWallpaperSlug })
+          .eq("id", chatId);
       }
       toast.success("Chat público criado.");
       setOpen(false);
@@ -389,12 +401,19 @@ export default function ChatsPage() {
                 </Segmented>
 
                 {createType === "public" ? (
-                  <Input
-                    placeholder="Título do chat público"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="rounded-xl"
-                  />
+                  <>
+                    <Input
+                      placeholder="Título do chat público"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="rounded-xl"
+                    />
+                    <WallpaperPicker
+                      value={chatWallpaperSlug}
+                      onChange={setChatWallpaperSlug}
+                      label="Cenário / Wallpaper (opcional)"
+                    />
+                  </>
                 ) : createType === "group" ? (
                   <>
                     <Input
