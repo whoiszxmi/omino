@@ -13,7 +13,7 @@ import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { safeSelect } from "@/lib/supabase/fallback";
 import { cn } from "@/lib/utils";
-import { AlignLeft, BookOpen, ChevronRight, Edit2 } from "lucide-react";
+import { AlignLeft, BookOpen, ChevronRight, Edit2, Trash2 } from "lucide-react";
 
 // ─── tipos ─────────────────────────────────────────────────────────────────────
 
@@ -156,7 +156,9 @@ export default function WikiViewPage() {
 
   const [loading, setLoading] = useState(true);
   const [wiki, setWiki] = useState<WikiRow | null>(null);
-  const [tocOpen, setTocOpen] = useState(false); // mobile TOC toggle
+  const [tocOpen, setTocOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const canEdit = useMemo(() => {
     if (!wiki || !activePersona) return false;
@@ -201,6 +203,23 @@ export default function WikiViewPage() {
 
     setWiki(query.data as unknown as WikiRow);
     setLoading(false);
+  }
+
+  async function deleteWiki() {
+    if (!wiki || !activePersona || deleting) return;
+    setDeleting(true);
+    const { error } = await supabase
+      .from("wiki_pages")
+      .delete()
+      .eq("id", wiki.id)
+      .eq("created_by_persona_id", activePersona.id);
+    setDeleting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Wiki excluída.");
+    router.push("/app/wiki");
   }
 
   useEffect(() => {
@@ -293,12 +312,41 @@ export default function WikiViewPage() {
               </Button>
             )}
             {canEdit && (
-              <Button
-                className="gap-1.5 rounded-2xl"
-                onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}
-              >
-                <Edit2 className="h-4 w-4" /> Editar
-              </Button>
+              <>
+                <Button
+                  className="gap-1.5 rounded-2xl"
+                  onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}
+                >
+                  <Edit2 className="h-4 w-4" /> Editar
+                </Button>
+                {!confirmDelete ? (
+                  <Button
+                    variant="destructive"
+                    className="gap-1.5 rounded-2xl"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className="h-4 w-4" /> Excluir
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="destructive"
+                      className="rounded-2xl"
+                      onClick={() => void deleteWiki()}
+                      disabled={deleting}
+                    >
+                      {deleting ? "Excluindo..." : "Confirmar"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className="rounded-2xl"
+                      onClick={() => setConfirmDelete(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </header>

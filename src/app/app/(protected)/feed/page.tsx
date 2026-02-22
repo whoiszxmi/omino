@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import { parseDocContent } from "@/lib/content/docMeta";
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ type Post = {
   content: string;
   created_at: string;
   wallpaper_slug: string | null;
+  parsedTitle: string;
   persona: { id: string; name: string; avatar_url?: string | null };
 };
 
@@ -153,7 +155,7 @@ function PostCard({ p }: { p: Post }) {
           <HighlightButtonGroup
             targetType="post"
             targetId={p.id}
-            title={`Post de ${p.persona.name}`}
+            title={p.parsedTitle || `Post de ${p.persona.name}`}
           />
           <Button
             size="sm"
@@ -272,6 +274,7 @@ export default function FeedPage() {
         content: row.content,
         created_at: row.created_at,
         wallpaper_slug: row.wallpaper_slug ?? null,
+        parsedTitle: parseDocContent(row.content ?? "").title ?? "",
         persona: {
           id: row.persona_id,
           name: row.personas?.name ?? "Desconhecido",
@@ -353,6 +356,45 @@ export default function FeedPage() {
   useEffect(() => {
     void loadInitial();
     void loadHighlights();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Realtime: novo post aparece no topo automaticamente
+  useEffect(() => {
+    const channel = supabase
+      .channel("feed-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "posts" },
+        async (payload) => {
+          const row = payload.new as any;
+          const { data: p } = await supabase
+            .from("personas")
+            .select("name, avatar_url")
+            .eq("id", row.persona_id)
+            .maybeSingle();
+          const newPost: Post = {
+            id: row.id,
+            content: row.content,
+            created_at: row.created_at,
+            wallpaper_slug: row.wallpaper_slug ?? null,
+            parsedTitle: parseDocContent(row.content ?? "").title ?? "",
+            persona: {
+              id: row.persona_id,
+              name: p?.name ?? "Desconhecido",
+              avatar_url: p?.avatar_url ?? null,
+            },
+          };
+          setPosts((prev) => {
+            if (prev.some((x) => x.id === newPost.id)) return prev;
+            return [newPost, ...prev];
+          });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

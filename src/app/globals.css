@@ -286,6 +286,56 @@
     content: "\00a0";
   }
 
+  /* ── Fix tipografia em fundos escuros/claros — Bug wallpaper ────────────────
+     O Tailwind .prose aplica cores nos filhos (p, h1, h2, strong...) com
+     especificidade maior que o `color` herdado da <section>.
+     A solução: usar o atributo data-doc-text (injetado por renderRichHtml)
+     para forçar a cor correta em TODOS os descendentes, vencendo o .prose.
+
+     data-doc-text="light" → texto claro (#f1f5f9) para fundos escuros
+     data-doc-text="dark"  → texto escuro (#1f2937) para fundos claros
+  ────────────────────────────────────────────────────────────────────────── */
+
+  /* Fundo escuro → texto claro em tudo */
+  [data-doc-text="light"],
+  [data-doc-text="light"] p,
+  [data-doc-text="light"] h1,
+  [data-doc-text="light"] h2,
+  [data-doc-text="light"] h3,
+  [data-doc-text="light"] h4,
+  [data-doc-text="light"] h5,
+  [data-doc-text="light"] h6,
+  [data-doc-text="light"] strong,
+  [data-doc-text="light"] em,
+  [data-doc-text="light"] li,
+  [data-doc-text="light"] blockquote,
+  [data-doc-text="light"] code,
+  [data-doc-text="light"] td,
+  [data-doc-text="light"] th,
+  [data-doc-text="light"] span {
+    color: #f1f5f9 !important;
+  }
+
+  /* Fundo claro → texto escuro em tudo */
+  [data-doc-text="dark"],
+  [data-doc-text="dark"] p,
+  [data-doc-text="dark"] h1,
+  [data-doc-text="dark"] h2,
+  [data-doc-text="dark"] h3,
+  [data-doc-text="dark"] h4,
+  [data-doc-text="dark"] h5,
+  [data-doc-text="dark"] h6,
+  [data-doc-text="dark"] strong,
+  [data-doc-text="dark"] em,
+  [data-doc-text="dark"] li,
+  [data-doc-text="dark"] blockquote,
+  [data-doc-text="dark"] code,
+  [data-doc-text="dark"] td,
+  [data-doc-text="dark"] th,
+  [data-doc-text="dark"] span {
+    color: #1f2937 !important;
+  }
+
   /* ── Bottom nav safe area (iOS) ─────────────────────────────────────────── */
   .pb-safe {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));

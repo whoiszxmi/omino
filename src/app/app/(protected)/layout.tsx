@@ -201,8 +201,8 @@ const BOTTOM_TABS = [
   { href: "/app/feed", label: "Feed", icon: Home },
   { href: "/app/chats", label: "Chats", icon: MessageCircle },
   { href: "/app/wiki", label: "Wiki", icon: BookOpen },
-  { href: "/app/highlights", label: "Destaques", icon: Star },
   { href: "/app/personas", label: "Personas", icon: UsersRound },
+  { href: "/app/profile", label: "Perfil", icon: UserRound },
 ] as const;
 
 type Action = { label: string; href: string; requiresPersona?: boolean } | null;
