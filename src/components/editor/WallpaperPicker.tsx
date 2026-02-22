@@ -11,6 +11,8 @@ type WallpaperPickerProps = {
   onChange: (value: string | null) => void;
   className?: string;
   label?: string;
+  /** Aceito para compatibilidade — o picker sempre fica aberto */
+  defaultOpen?: boolean;
 };
 
 export default function WallpaperPicker({
