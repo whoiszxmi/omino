@@ -20,8 +20,12 @@ import {
 } from "@/lib/content/docMeta";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import { safeSelect } from "@/lib/supabase/fallback";
 import CategorySelect from "@/components/wiki/CategorySelect";
+import { renderRichHtml } from "@/lib/render/richText";
+import { BookOpen, Eye, EyeOff } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type WikiRow = {
   id: string;
@@ -32,6 +36,57 @@ type WikiRow = {
   created_by_persona_id: string;
   wallpaper_slug?: string | null;
 };
+
+// ─── Preview ao vivo ──────────────────────────────────────────────────────────
+
+function WikiPreview({
+  wallpaperSlug,
+  title,
+  contentHtml,
+  personaName,
+}: {
+  wallpaperSlug: string | null;
+  title: string;
+  contentHtml: string;
+  personaName: string;
+}) {
+  const isEmpty = !contentHtml.trim() || contentHtml.trim() === "<p></p>";
+
+  return (
+    <div className="overflow-hidden rounded-2xl border shadow-sm">
+      {wallpaperSlug ? (
+        <WallpaperBackground
+          wallpaperSlug={wallpaperSlug}
+          className="h-24 w-full"
+        />
+      ) : (
+        <div className="flex h-24 w-full items-center justify-center bg-muted/30">
+          <BookOpen className="h-6 w-6 text-muted-foreground/30" />
+        </div>
+      )}
+      <div className="space-y-2 p-4">
+        <p className="text-base font-bold leading-snug">
+          {title.trim() || (
+            <span className="italic text-muted-foreground">Título...</span>
+          )}
+        </p>
+        <p className="text-xs text-muted-foreground">Por {personaName}</p>
+        {isEmpty ? (
+          <p className="text-xs italic text-muted-foreground">
+            O conteúdo aparecerá aqui...
+          </p>
+        ) : (
+          <div
+            className="prose prose-sm max-w-none break-words text-sm line-clamp-6"
+            dangerouslySetInnerHTML={{ __html: renderRichHtml(contentHtml) }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function WikiEditPage() {
   const params = useParams<{ id: string }>();
@@ -50,15 +105,16 @@ export default function WikiEditPage() {
     DEFAULT_DOC_BACKGROUND,
   );
   const [wallpaperSlug, setWallpaperSlug] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const initialDraft = useMemo(
     () => ({
       title: wiki?.title ?? null,
       contentHtml: wiki?.content_html ?? "",
-      coverUrl: wiki?.cover_url ?? null,
+      coverUrl: wiki?.wallpaper_slug ?? wiki?.cover_url ?? null,
     }),
-    [wiki?.content_html, wiki?.cover_url, wiki?.title],
+    [wiki?.content_html, wiki?.cover_url, wiki?.title, wiki?.wallpaper_slug],
   );
 
   const drafts = useDraftAutosave({
@@ -66,11 +122,13 @@ export default function WikiEditPage() {
     draftKey: `edit:${wikiId}`,
     personaId: activePersona?.id ?? null,
     initialValue: initialDraft,
-    value: { title, contentHtml, coverUrl: backgroundColor },
+    value: { title, contentHtml, coverUrl: wallpaperSlug ?? backgroundColor },
     enabled: !!wiki,
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);
+      const saved = draft.coverUrl ?? null;
+      if (saved && !saved.startsWith("#")) setWallpaperSlug(saved);
     },
   });
 
@@ -192,21 +250,40 @@ export default function WikiEditPage() {
     );
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-4 p-4 md:p-6">
-      <header className="flex items-center justify-between">
+    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
+      {/* Header */}
+      <header className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold">Editar Wiki</h1>
           <p className="text-xs text-muted-foreground">
             Editando como: {activePersona?.name ?? "—"}
           </p>
         </div>
-        <Button
-          variant="secondary"
-          className="rounded-2xl"
-          onClick={() => router.push(`/app/wiki/${wiki.id}`)}
-        >
-          Voltar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 rounded-2xl"
+            onClick={() => setShowPreview((v) => !v)}
+          >
+            {showPreview ? (
+              <>
+                <EyeOff className="h-4 w-4" /> Editor
+              </>
+            ) : (
+              <>
+                <Eye className="h-4 w-4" /> Preview
+              </>
+            )}
+          </Button>
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push(`/app/wiki/${wiki.id}`)}
+          >
+            Voltar
+          </Button>
+        </div>
       </header>
 
       <DraftStatusBar
@@ -216,127 +293,148 @@ export default function WikiEditPage() {
         onDiscard={() => drafts.discard()}
       />
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Conteúdo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Capa */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Imagem de capa (opcional)
-            </label>
-            <div
-              className="overflow-hidden rounded-xl border bg-muted"
-              style={{ height: coverUrl ? 160 : 64 }}
-            >
-              {coverUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={coverUrl}
-                  alt="cover"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                  Nenhuma capa
-                </div>
-              )}
-            </div>
-            <div className="mt-2 flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => coverInputRef.current?.click()}
+      <div
+        className={cn(
+          "gap-6",
+          showPreview ? "grid grid-cols-1 md:grid-cols-2" : "flex flex-col",
+        )}
+      >
+        {/* ── Editor ──────────────────────────────────────────────────────── */}
+        <Card className="rounded-2xl">
+          <CardContent className="space-y-4 pt-5">
+            {/* Capa por upload */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Imagem de capa (opcional)
+              </label>
+              <div
+                className="overflow-hidden rounded-xl border bg-muted"
+                style={{ height: coverUrl ? 160 : 64 }}
               >
-                {coverUrl ? "Trocar capa" : "Adicionar capa"}
-              </Button>
-              {coverUrl && (
+                {coverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverUrl}
+                    alt="cover"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                    Nenhuma capa
+                  </div>
+                )}
+              </div>
+              <div className="mt-2 flex gap-2">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                   className="rounded-xl"
-                  onClick={() => setCoverUrl(null)}
+                  onClick={() => coverInputRef.current?.click()}
                 >
-                  Remover
+                  {coverUrl ? "Trocar capa" : "Adicionar capa"}
                 </Button>
-              )}
+                {coverUrl && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={() => setCoverUrl(null)}
+                  >
+                    Remover
+                  </Button>
+                )}
+              </div>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  void uploadCover(file)
+                    .then((url) => setCoverUrl(url))
+                    .catch((err: unknown) =>
+                      toast.error(
+                        err instanceof Error ? err.message : "Falha no upload",
+                      ),
+                    );
+                }}
+              />
             </div>
-            <input
-              ref={coverInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                void uploadCover(file)
-                  .then((url) => setCoverUrl(url))
-                  .catch((err: unknown) =>
-                    toast.error(
-                      err instanceof Error ? err.message : "Falha no upload",
-                    ),
-                  );
-              }}
+
+            {/* Título */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Título
+              </label>
+              <Input
+                placeholder="Título da wiki"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+
+            {/* Categoria */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Categoria
+              </label>
+              <CategorySelect value={categoryId} onChange={setCategoryId} />
+            </div>
+
+            {/* Wallpaper picker colapsável */}
+            <WallpaperPicker
+              value={wallpaperSlug}
+              onChange={setWallpaperSlug}
+              label="Plano de fundo da wiki"
+              defaultOpen={!!wallpaperSlug}
+            />
+
+            {/* Conteúdo */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Conteúdo
+              </label>
+              <RichTextEditor
+                valueHtml={contentHtml}
+                onChangeHtml={setContentHtml}
+                placeholder="Edite o conteúdo da wiki..."
+                folder="wikis"
+                imageInsertMode="both"
+                enableTables
+              />
+            </div>
+
+            <Button
+              className="w-full rounded-2xl"
+              onClick={() => void saveWiki()}
+              disabled={saving || !canEdit}
+            >
+              {saving ? "Salvando..." : "Salvar alterações"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* ── Preview ao vivo ─────────────────────────────────────────────── */}
+        {showPreview && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Preview — como aparece na biblioteca
+            </p>
+            <WikiPreview
+              wallpaperSlug={wallpaperSlug}
+              title={title}
+              contentHtml={contentHtml}
+              personaName={activePersona?.name ?? "Persona"}
             />
           </div>
-
-          {/* Título */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Título
-            </label>
-            <Input
-              placeholder="Título da wiki"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="rounded-xl"
-            />
-          </div>
-
-          {/* Categoria */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Categoria
-            </label>
-            <CategorySelect value={categoryId} onChange={setCategoryId} />
-          </div>
-
-          {/* Wallpaper */}
-          <WallpaperPicker
-            value={wallpaperSlug}
-            onChange={setWallpaperSlug}
-            label="Plano de fundo da wiki"
-          />
-
-          {/* Conteúdo */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Conteúdo
-            </label>
-            <RichTextEditor
-              valueHtml={contentHtml}
-              onChangeHtml={setContentHtml}
-              placeholder="Edite o conteúdo da wiki..."
-              folder="wikis"
-              imageInsertMode="both"
-              enableTables
-            />
-          </div>
-
-          <Button
-            className="w-full rounded-2xl"
-            onClick={() => void saveWiki()}
-            disabled={saving || !canEdit}
-          >
-            {saving ? "Salvando..." : "Salvar alterações"}
-          </Button>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
       <DraftRestoreDialog
         open={!!drafts.restoreCandidate}
