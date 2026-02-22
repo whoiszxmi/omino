@@ -10,7 +10,7 @@ import DOMPurify from "isomorphic-dompurify";
 import { toast } from "sonner";
 import { renderRichHtml } from "@/lib/render/richText";
 import UserCardModal from "@/components/profile/UserCardModal";
-import { Settings, X } from "lucide-react";
+import { Settings, X, SendHorizonal } from "lucide-react";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 import WallpaperPicker from "@/components/editor/WallpaperPicker";
@@ -126,8 +126,10 @@ export default function ChatRoomPage() {
   const [inputHtml, setInputHtml] = useState("");
   const [sending, setSending] = useState(false);
 
+  // ── input expandido / colapsado ───────────────────────────────────────────
+  const [inputOpen, setInputOpen] = useState(false);
+
   const [chatTitle, setChatTitle] = useState("Chat");
-  // Fix #2: usar wallpaper_slug (TEXT) em vez de wallpaper_id (UUID FK)
   const [chatWallpaperSlug, setChatWallpaperSlug] = useState<string | null>(
     null,
   );
@@ -158,7 +160,6 @@ export default function ChatRoomPage() {
   );
 
   const didInitialScrollRef = useRef(false);
-  // Fix #3: listRef com min-h-0 no JSX para scroll funcionar no mobile
   const listRef = useRef<HTMLDivElement>(null);
 
   function scrollToBottom(smooth = false) {
@@ -258,12 +259,10 @@ export default function ChatRoomPage() {
     return q2.order("created_at", { ascending: false }).limit(opts.limit);
   }
 
-  /** Fix: atualiza last_read_at quando o usuário abre o chat */
   async function markAsRead(validChatId: string) {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
     setCurrentUserId(userData.user.id);
-    // Atualiza last_read_at em chat_participants para este usuário neste chat
     await supabase
       .from("chat_participants")
       .update({ last_read_at: new Date().toISOString() })
@@ -274,7 +273,6 @@ export default function ChatRoomPage() {
   async function loadInitial(validChatId: string) {
     setLoading(true);
     try {
-      // Fix #2: busca wallpaper_slug (TEXT) em vez de wallpaper_id (UUID)
       let chatRes = await supabase
         .from("chats")
         .select("title,wallpaper_slug,parent_id,created_by")
@@ -326,8 +324,6 @@ export default function ChatRoomPage() {
       setHasMore(rows.length === PAGE_SIZE);
 
       performInitialScroll();
-
-      // Marca como lido ao abrir
       void markAsRead(validChatId);
     } finally {
       setLoading(false);
@@ -525,6 +521,8 @@ export default function ChatRoomPage() {
 
       setInputHtml("");
       setReplyTo(null);
+      // fecha o editor após enviar
+      setInputOpen(false);
 
       if (typingChannelRef.current) {
         void typingChannelRef.current.track({
@@ -535,7 +533,6 @@ export default function ChatRoomPage() {
         } satisfies TypingPresence);
       }
 
-      // Atualiza last_read_at ao enviar também
       void markAsRead(chatId);
 
       if (insertedId && isNearBottom())
@@ -582,7 +579,6 @@ export default function ChatRoomPage() {
           if (!inserted) return;
           if (nearBottom) {
             setTimeout(() => scrollToBottom(true), 0);
-            // Marca como lido quando nova mensagem chega e está no fim
             void markAsRead(chatId);
           } else {
             setPendingNewCount((prev) => prev + 1);
@@ -685,12 +681,10 @@ export default function ChatRoomPage() {
   }, [messages, activePersona?.id]);
 
   return (
-    // Fix #2: wallpaperSlug em vez de wallpaperId
     <WallpaperBackground
       wallpaperSlug={chatWallpaperSlug}
       className="min-h-dvh w-full"
     >
-      {/* Diálogo de criação de subchat */}
       {chatCreatedBy && (
         <CreateSubchatDialog
           open={showCreateSubchat}
@@ -701,7 +695,6 @@ export default function ChatRoomPage() {
         />
       )}
 
-      {/* Diálogo de configurações do chat */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent className="rounded-2xl">
           <DialogHeader>
@@ -754,8 +747,8 @@ export default function ChatRoomPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Fix #3: flex-col + h-dvh → o listRef com min-h-0 permite scroll real no mobile */}
       <div className="mx-auto flex h-dvh w-full max-w-[1200px] flex-col">
+        {/* Header */}
         <header className="relative shrink-0 border-b bg-background/90 backdrop-blur">
           <div className="flex items-center justify-between px-4 py-3 md:px-6">
             <Button
@@ -773,7 +766,6 @@ export default function ChatRoomPage() {
                   : "Selecione uma persona"}
               </p>
             </div>
-            {/* Botões de ação — settings + regiões */}
             <div className="flex items-center gap-1.5">
               {currentUserId && chatCreatedBy === currentUserId && (
                 <Button
@@ -786,7 +778,6 @@ export default function ChatRoomPage() {
                   <Settings className="h-4 w-4" />
                 </Button>
               )}
-              {/* SubchatSidebar injecta o botão "Regiões" aqui */}
               <SubchatSidebar
                 currentChatId={chatId}
                 parentId={chatParentId}
@@ -796,14 +787,13 @@ export default function ChatRoomPage() {
           </div>
         </header>
 
-        {/* Área principal: mensagens + input (sem sidebar lateral) */}
+        {/* Área principal: mensagens + input */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Área de mensagens com scroll */}
+          {/* Mensagens com scroll — ocupa todo o espaço disponível */}
           <div
             ref={listRef}
             className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
           >
-            {/* Lista de subchats — aparece no topo do chat pai */}
             {!chatParentId && (
               <SubchatList
                 parentId={chatId}
@@ -812,6 +802,7 @@ export default function ChatRoomPage() {
                 onCreateSubchat={() => setShowCreateSubchat(true)}
               />
             )}
+
             {!chatId || !isUuid(chatId) ? (
               <p className="text-sm text-muted-foreground">Chat inválido.</p>
             ) : loading ? (
@@ -875,7 +866,11 @@ export default function ChatRoomPage() {
                       className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
                     >
                       <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"} ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${
+                          item.mine
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted"
+                        } ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
                       >
                         <UserCardModal
                           user={{
@@ -962,9 +957,11 @@ export default function ChatRoomPage() {
           </div>
           {/* fim listRef */}
 
-          <div className="shrink-0 border-t bg-background/90 backdrop-blur p-3 md:p-4">
+          {/* ── Barra de input — colapsável ─────────────────────────────────── */}
+          <div className="shrink-0">
+            {/* Indicador de digitação — aparece acima da barra, sempre visível */}
             {typingUsers.length > 0 && (
-              <div className="mb-2 text-xs text-muted-foreground">
+              <div className="px-4 pb-1 text-xs text-muted-foreground">
                 {typingUsers.join(", ")}{" "}
                 {typingUsers.length === 1
                   ? "está digitando…"
@@ -972,82 +969,114 @@ export default function ChatRoomPage() {
               </div>
             )}
 
-            {replyTo && (
-              <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">
-                    Respondendo a {replyTo.name}
+            {/* Editor expandido — só aparece quando inputOpen=true */}
+            {inputOpen && (
+              <div className="border-t bg-background/95 backdrop-blur px-3 pt-3 pb-2 space-y-2">
+                {/* Banner de resposta */}
+                {replyTo && (
+                  <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-3 py-1.5">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold">
+                        Respondendo a {replyTo.name}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {replyTo.preview}
+                      </div>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 shrink-0 rounded-xl"
+                      onClick={() => setReplyTo(null)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {replyTo.preview}
-                  </div>
+                )}
+
+                <div className="rounded-2xl border bg-background overflow-hidden">
+                  <RichTextEditor
+                    valueHtml={inputHtml}
+                    onChangeHtml={(v) => {
+                      setInputHtml(v);
+                      if (!activePersona || !typingChannelRef.current) return;
+                      if (Date.now() - typingTrackThrottleRef.current > 800) {
+                        typingTrackThrottleRef.current = Date.now();
+                        void typingChannelRef.current.track({
+                          typing: true,
+                          personaId: activePersona.id,
+                          personaName: activePersona.name,
+                          ts: Date.now(),
+                        } satisfies TypingPresence);
+                      }
+                      if (typingStopTimeoutRef.current)
+                        window.clearTimeout(typingStopTimeoutRef.current);
+                      typingStopTimeoutRef.current = window.setTimeout(() => {
+                        if (!typingChannelRef.current || !activePersona) return;
+                        void typingChannelRef.current.track({
+                          typing: false,
+                          personaId: activePersona.id,
+                          personaName: activePersona.name,
+                          ts: Date.now(),
+                        } satisfies TypingPresence);
+                      }, 800);
+                    }}
+                    placeholder={
+                      activePersona
+                        ? `Mensagem como ${activePersona.name}`
+                        : "Selecione uma persona"
+                    }
+                    compact
+                    bucket="media"
+                    folder="chats"
+                    imageInsertMode="both"
+                    enableTables={false}
+                  />
                 </div>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="h-8 w-8 rounded-2xl"
-                  onClick={() => setReplyTo(null)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setInputOpen(false);
+                      setReplyTo(null);
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <Button
+                    className="rounded-2xl gap-2"
+                    onClick={() => void sendMessage()}
+                    disabled={!activePersona || sending}
+                  >
+                    <SendHorizonal className="h-4 w-4" />
+                    {sending ? "Enviando..." : "Enviar"}
+                  </Button>
+                </div>
               </div>
             )}
 
-            <div className="rounded-2xl border bg-background p-2">
-              <RichTextEditor
-                valueHtml={inputHtml}
-                onChangeHtml={(v) => {
-                  setInputHtml(v);
-                  if (!activePersona || !typingChannelRef.current) return;
-                  if (Date.now() - typingTrackThrottleRef.current > 800) {
-                    typingTrackThrottleRef.current = Date.now();
-                    void typingChannelRef.current.track({
-                      typing: true,
-                      personaId: activePersona.id,
-                      personaName: activePersona.name,
-                      ts: Date.now(),
-                    } satisfies TypingPresence);
-                  }
-                  if (typingStopTimeoutRef.current)
-                    window.clearTimeout(typingStopTimeoutRef.current);
-                  typingStopTimeoutRef.current = window.setTimeout(() => {
-                    if (!typingChannelRef.current || !activePersona) return;
-                    void typingChannelRef.current.track({
-                      typing: false,
-                      personaId: activePersona.id,
-                      personaName: activePersona.name,
-                      ts: Date.now(),
-                    } satisfies TypingPresence);
-                  }, 800);
-                }}
-                placeholder={
-                  activePersona
-                    ? `Mensagem como ${activePersona.name}`
-                    : "Selecione uma persona"
-                }
-                compact
-                bucket="media"
-                folder="chats"
-                imageInsertMode="both"
-                enableTables={false}
-              />
-            </div>
-
-            <div className="mt-2 flex justify-end">
-              <Button
-                className="rounded-2xl"
-                onClick={() => void sendMessage()}
-                disabled={!activePersona || sending}
+            {/* Barra mínima — sempre visível quando editor está fechado */}
+            {!inputOpen && (
+              <div
+                className="border-t bg-background/90 backdrop-blur px-4 py-3 cursor-text"
+                onClick={() => setInputOpen(true)}
               >
-                {sending ? "Enviando..." : "Enviar"}
-              </Button>
-            </div>
+                <div className="flex items-center gap-3 rounded-full border bg-muted/50 px-4 py-2.5 hover:bg-muted/70 transition-colors">
+                  <span className="flex-1 text-sm text-muted-foreground select-none">
+                    {activePersona
+                      ? `Mensagem como ${activePersona.name}…`
+                      : "Selecione uma persona para enviar mensagens"}
+                  </span>
+                  <SendHorizonal className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                </div>
+              </div>
+            )}
           </div>
-          {/* fim shrink-0 input */}
+          {/* fim barra de input */}
         </div>
-        {/* fim flex-col área principal */}
       </div>
-      {/* fim h-dvh outer */}
     </WallpaperBackground>
   );
 }
