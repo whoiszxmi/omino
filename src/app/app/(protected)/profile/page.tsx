@@ -85,6 +85,7 @@ function PostPreviewCard({ p, onOpen }: { p: PostRow; onOpen: () => void }) {
           <WallpaperBackground
             wallpaperSlug={p.wallpaper_slug}
             className="h-full w-full"
+            mode="inline"
           />
         </div>
       )}

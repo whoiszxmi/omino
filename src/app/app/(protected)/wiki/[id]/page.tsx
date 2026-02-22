@@ -369,6 +369,7 @@ export default function WikiViewPage() {
                   <WallpaperBackground
                     wallpaperSlug={wiki.wallpaper_slug}
                     className="h-full w-full"
+                    mode="inline"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center">

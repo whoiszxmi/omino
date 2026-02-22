@@ -8,6 +8,8 @@
  * Props:
  *   wallpaperSlug  — valor do campo `wallpaper_slug` da entidade (post, wiki, chat)
  *   fallback       — cor CSS de fallback quando sem wallpaper
+ *   mode           — "fullscreen" (padrão): usa layer fixo que cobre a tela toda
+ *                  — "inline": aplica o background diretamente no div (para thumbnails)
  */
 
 import { CSSProperties, ReactNode } from "react";
@@ -56,6 +58,12 @@ type WallpaperBackgroundProps = {
   fallback?: string;
   className?: string;
   children?: ReactNode;
+  /**
+   * "fullscreen" (padrão para páginas): renderiza um layer fixo atrás da página
+   *   inteira — o wallpaper cobre a tela toda, inclusive atrás dos cards.
+   * "inline": aplica o background diretamente no div — bom para thumbnails/picker.
+   */
+  mode?: "fullscreen" | "inline";
 };
 
 export default function WallpaperBackground({
@@ -64,20 +72,47 @@ export default function WallpaperBackground({
   fallback,
   className,
   children,
+  mode = "fullscreen",
 }: WallpaperBackgroundProps) {
-  // wallpaperId era usado como slug no código antigo — mantemos como fallback
   const slug = wallpaperSlug ?? wallpaperId ?? null;
   const wallpaperStyle = getWallpaperStyle(slug);
+  const hasWallpaper = !!wallpaperStyle;
 
+  // ── modo inline (thumbnails, picker, etc.) ────────────────────────────────
+  if (mode === "inline") {
+    return (
+      <div
+        className={cn(className)}
+        style={{
+          ...(fallback ? { backgroundColor: fallback } : null),
+          ...(wallpaperStyle ?? null),
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  // ── modo fullscreen (páginas de post/wiki/chat) ───────────────────────────
   return (
-    <div
-      className={cn(className)}
-      style={{
-        ...(fallback ? { backgroundColor: fallback } : null),
-        ...(wallpaperStyle ?? null),
-      }}
-    >
-      {children}
+    <div className={cn("relative", className)}>
+      {/* Layer de fundo fixo — cobre toda a viewport */}
+      {hasWallpaper && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-0 transition-all duration-500"
+          style={wallpaperStyle}
+        />
+      )}
+      {!hasWallpaper && fallback && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-0"
+          style={{ backgroundColor: fallback }}
+        />
+      )}
+      {/* Conteúdo acima do layer de fundo */}
+      <div className="relative z-10">{children}</div>
     </div>
   );
 }

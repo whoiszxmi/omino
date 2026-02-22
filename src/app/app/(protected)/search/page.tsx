@@ -99,6 +99,7 @@ function PostCard({
           <WallpaperBackground
             wallpaperSlug={r.wallpaper_slug}
             className="h-full w-full"
+            mode="inline"
           />
         </div>
       )}
@@ -151,6 +152,7 @@ function WikiCard({
           <WallpaperBackground
             wallpaperSlug={r.wallpaper_slug}
             className="h-full w-full"
+            mode="inline"
           />
         </div>
       )}

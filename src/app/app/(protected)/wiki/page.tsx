@@ -67,6 +67,7 @@ function WikiCard({ w, onClick }: { w: Wiki; onClick: () => void }) {
           <WallpaperBackground
             wallpaperSlug={w.wallpaper_slug}
             className="h-full w-full"
+            mode="inline"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">

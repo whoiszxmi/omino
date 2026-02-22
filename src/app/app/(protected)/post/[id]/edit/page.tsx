@@ -268,6 +268,7 @@ export default function PostEditPage() {
           wallpaperSlug={wallpaperSlug}
           fallback={backgroundColor}
           className="min-h-[400px] rounded-2xl p-6"
+          mode="inline"
         >
           <div className="rounded-2xl bg-card/90 p-6 shadow-sm backdrop-blur-sm">
             <h1 className="mb-2 text-2xl font-bold">{title || "Sem título"}</h1>

@@ -86,6 +86,7 @@ function PostCard({ p }: { p: Post }) {
           <WallpaperBackground
             wallpaperSlug={p.wallpaper_slug}
             className="h-full w-full"
+            mode="inline"
           />
         </div>
       )}

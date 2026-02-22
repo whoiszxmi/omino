@@ -51,6 +51,7 @@ function WikiPreview({
         <WallpaperBackground
           wallpaperSlug={wallpaperSlug}
           className="h-24 w-full"
+          mode="inline"
         />
       ) : (
         <div className="flex h-24 w-full items-center justify-center bg-muted/30">

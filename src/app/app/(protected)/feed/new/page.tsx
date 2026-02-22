@@ -46,6 +46,7 @@ function PostPreview({
         <WallpaperBackground
           wallpaperSlug={wallpaperSlug}
           className="h-24 w-full"
+          mode="inline"
         />
       ) : (
         <div className="h-24 w-full" style={{ backgroundColor }} />
