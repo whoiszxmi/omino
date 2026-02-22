@@ -275,9 +275,9 @@ export default function WikiViewPage() {
   return (
     <WallpaperBackground
       wallpaperSlug={wiki.wallpaper_slug ?? null}
-      className="min-h-dvh w-full px-3 py-4 sm:px-4 md:px-6 md:py-8"
+      className="min-h-dvh w-full"
     >
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-4 md:px-6 md:py-8">
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="mb-4 flex items-center justify-between gap-2">
           <Button
