@@ -1,3 +1,6 @@
+import { redirect } from "next/navigation";
+
+// Redireciona /app → /app/feed (server-side, sem flash)
 export default function AppHome() {
-  return <div style={{ padding: 16 }}>OK /app</div>;
+  redirect("/app/feed");
 }

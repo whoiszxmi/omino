@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
@@ -20,6 +20,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Loader2,
   PenLine,
   RefreshCw,
   Star,
@@ -27,11 +28,10 @@ import {
 import { cn } from "@/lib/utils";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
 
-// Schema real de `posts`:
-// id, persona_id, content, created_at,
-// wallpaper_id (uuid FK), wallpaper_slug (text), wallpaper_mode, theme, text_contrast, ui_theme
-// NÃO TEM: title, cover_url
+// ─── tipos ────────────────────────────────────────────────────────────────────
 
+// posts schema: id, persona_id, content, created_at,
+// wallpaper_slug (TEXT), wallpaper_id (UUID FK) — sem title, sem cover_url
 type Post = {
   id: string;
   content: string;
@@ -40,7 +40,11 @@ type Post = {
   persona: { id: string; name: string; avatar_url?: string | null };
 };
 
-function htmlToText(html: string, maxLen = 200) {
+const PAGE_SIZE = 20;
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+function htmlToText(html: string, maxLen = 240) {
   return html
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
@@ -60,6 +64,8 @@ function relTime(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
+// ─── Post Card ────────────────────────────────────────────────────────────────
+
 function PostCard({ p }: { p: Post }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -67,7 +73,7 @@ function PostCard({ p }: { p: Post }) {
 
   return (
     <Card className="overflow-hidden rounded-2xl transition hover:shadow-md">
-      {/* Faixa de wallpaper (slug local = zero banda Supabase) */}
+      {/* Faixa de wallpaper — CSS/SVG local, zero banda Supabase */}
       {p.wallpaper_slug && (
         <div
           className="h-16 w-full cursor-pointer"
@@ -81,7 +87,7 @@ function PostCard({ p }: { p: Post }) {
       )}
 
       <CardContent className="space-y-2 p-4">
-        {/* Meta da persona */}
+        {/* Meta */}
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted">
             {p.persona.avatar_url ? (
@@ -103,7 +109,7 @@ function PostCard({ p }: { p: Post }) {
           </span>
         </div>
 
-        {/* Conteúdo colapsado */}
+        {/* Preview colapsado */}
         {!expanded && (
           <p
             className="line-clamp-3 cursor-pointer text-sm text-foreground/80"
@@ -167,14 +173,15 @@ function PostCard({ p }: { p: Post }) {
   );
 }
 
+// ─── Highlight Card ───────────────────────────────────────────────────────────
+
 function HighlightCard({ item }: { item: NormalizedHighlight }) {
   const router = useRouter();
   const isWiki = item.target_type === "wiki";
-
   return (
     <button
       type="button"
-      className="group overflow-hidden rounded-2xl border text-left transition hover:shadow-md"
+      className="group overflow-hidden rounded-2xl border bg-card text-left transition hover:shadow-md active:scale-[0.98]"
       onClick={() =>
         router.push(
           isWiki
@@ -220,58 +227,96 @@ function HighlightCard({ item }: { item: NormalizedHighlight }) {
   );
 }
 
+// ─── Página Principal ─────────────────────────────────────────────────────────
+
 export default function FeedPage() {
   const router = useRouter();
   const { activePersona } = useActivePersona();
 
-  const [loading, setLoading] = useState(true);
+  // ── posts state ──────────────────────────────────────────────────────────
   const [posts, setPosts] = useState<Post[]>([]);
-  const [highlightsLoading, setHighlightsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  // cursor = created_at do post mais antigo já carregado
+  const cursorRef = useRef<string | null>(null);
+
+  // ── highlights state ─────────────────────────────────────────────────────
   const [highlights, setHighlights] = useState<NormalizedHighlight[]>([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(true);
   const [highlightFilter, setHighlightFilter] = useState<
     "all" | HighlightTargetType
   >("all");
   const [showAllHighlights, setShowAllHighlights] = useState(false);
-  const personaCache = useRef<
-    Record<string, { name: string; avatar_url: string | null }>
-  >({});
 
-  async function loadPosts() {
-    setLoading(true);
-    const { data, error } = await supabase
+  // ── loaders ───────────────────────────────────────────────────────────────
+
+  const fetchPosts = useCallback(async (cursor: string | null) => {
+    // cursor-based pagination: busca PAGE_SIZE posts mais antigos que o cursor
+    let q = supabase
       .from("posts")
-      // Colunas reais: id, persona_id, content, created_at, wallpaper_slug (sem title, sem cover_url)
       .select(
         "id, content, created_at, wallpaper_slug, persona_id, personas(name, avatar_url)",
       )
       .order("created_at", { ascending: false })
-      .limit(30);
+      .limit(PAGE_SIZE);
 
-    if (error) {
-      console.error("ERRO loadPosts:", error);
+    if (cursor) q = q.lt("created_at", cursor);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    return (data ?? []).map(
+      (row: any): Post => ({
+        id: row.id,
+        content: row.content,
+        created_at: row.created_at,
+        wallpaper_slug: row.wallpaper_slug ?? null,
+        persona: {
+          id: row.persona_id,
+          name: row.personas?.name ?? "Desconhecido",
+          avatar_url: row.personas?.avatar_url ?? null,
+        },
+      }),
+    );
+  }, []);
+
+  async function loadInitial() {
+    setLoading(true);
+    cursorRef.current = null;
+    try {
+      const page = await fetchPosts(null);
+      setPosts(page);
+      setHasMore(page.length === PAGE_SIZE);
+      cursorRef.current = page[page.length - 1]?.created_at ?? null;
+    } catch (e: any) {
+      console.error("ERRO loadPosts:", e);
+    } finally {
       setLoading(false);
-      return;
     }
+  }
 
-    const mapped: Post[] = (data ?? []).map((row: any) => ({
-      id: row.id,
-      content: row.content,
-      created_at: row.created_at,
-      wallpaper_slug: row.wallpaper_slug ?? null,
-      persona: {
-        id: row.persona_id,
-        name: row.personas?.name ?? "Desconhecido",
-        avatar_url: row.personas?.avatar_url ?? null,
-      },
-    }));
-
-    for (const p of mapped)
-      personaCache.current[p.persona.id] = {
-        name: p.persona.name,
-        avatar_url: p.persona.avatar_url ?? null,
-      };
-    setPosts(mapped);
-    setLoading(false);
+  async function loadMore() {
+    if (loadingMore || !hasMore || !cursorRef.current) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchPosts(cursorRef.current);
+      if (page.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setPosts((prev) => {
+        // dedup por id
+        const ids = new Set(prev.map((p) => p.id));
+        return [...prev, ...page.filter((p) => !ids.has(p.id))];
+      });
+      setHasMore(page.length === PAGE_SIZE);
+      cursorRef.current = page[page.length - 1]?.created_at ?? null;
+    } catch (e: any) {
+      console.error("ERRO loadMore:", e);
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   async function loadHighlights() {
@@ -288,21 +333,42 @@ export default function FeedPage() {
     setHighlightsLoading(false);
   }
 
+  // ── Infinite scroll via IntersectionObserver ──────────────────────────────
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    loadPosts();
-    loadHighlights(); /* eslint-disable-next-line react-hooks/exhaustive-deps */
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "200px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, loadingMore]);
+
+  useEffect(() => {
+    void loadInitial();
+    void loadHighlights();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── highlights filtrados ──────────────────────────────────────────────────
   const filteredHighlights =
     highlightFilter === "all"
       ? highlights
       : highlights.filter((h) => h.target_type === highlightFilter);
+
   const visibleHighlights = showAllHighlights
     ? filteredHighlights
     : filteredHighlights.slice(0, 6);
 
+  // ─── render ──────────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col gap-4 p-4">
+    <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4">
       {/* Header */}
       <header className="flex items-center justify-between">
         <div className="min-w-0">
@@ -313,18 +379,19 @@ export default function FeedPage() {
               : "Selecione uma persona"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Button
             variant="ghost"
             size="icon"
             className="rounded-2xl"
             onClick={() => {
-              loadPosts();
-              loadHighlights();
+              void loadInitial();
+              void loadHighlights();
             }}
+            disabled={loading}
             title="Atualizar"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
           <Button
             variant="secondary"
@@ -432,14 +499,12 @@ export default function FeedPage() {
       {/* Posts */}
       <section className="space-y-3">
         {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-40 animate-pulse rounded-2xl border bg-muted/40"
-              />
-            ))}
-          </div>
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-40 animate-pulse rounded-2xl border bg-muted/40"
+            />
+          ))
         ) : posts.length === 0 ? (
           <div className="rounded-2xl border border-dashed p-8 text-center">
             <p className="text-sm font-medium">Nada por aqui ainda</p>
@@ -451,6 +516,21 @@ export default function FeedPage() {
           posts.map((p) => <PostCard key={p.id} p={p} />)
         )}
       </section>
+
+      {/* Sentinel de paginação — IntersectionObserver observa este elemento */}
+      <div ref={sentinelRef} className="flex justify-center py-4">
+        {loadingMore && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando mais posts...
+          </div>
+        )}
+        {!hasMore && posts.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Você chegou ao fim do feed.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

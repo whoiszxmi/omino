@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
@@ -11,9 +11,11 @@ import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
 import { renderRichHtml } from "@/lib/render/richText";
 import { AppPageSkeleton } from "@/components/app/AppPageSkeleton";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
-import { parseDocContent } from "@/lib/content/docMeta";
-import { resolveForegroundTheme, type UiTheme } from "@/lib/ui/isDarkColor";
 import { safeSelect } from "@/lib/supabase/fallback";
+import { cn } from "@/lib/utils";
+import { AlignLeft, BookOpen, ChevronRight, Edit2 } from "lucide-react";
+
+// ─── tipos ─────────────────────────────────────────────────────────────────────
 
 type WikiRow = {
   id: string;
@@ -24,8 +26,7 @@ type WikiRow = {
   created_by_persona_id: string;
   created_at: string;
   updated_at: string;
-  wallpaper_id?: string | null;
-  ui_theme?: UiTheme | null;
+  wallpaper_slug?: string | null; // Fix #2: TEXT slug para renderização local
   personas?: { id: string; name: string; avatar_url: string | null } | null;
   wiki_categories?: {
     id: string;
@@ -33,6 +34,118 @@ type WikiRow = {
     parent_id: string | null;
   } | null;
 };
+
+// ─── Geração de TOC a partir do HTML ─────────────────────────────────────────
+// Fix #15: extrai headings do content_html para gerar índice de navegação.
+
+type TocItem = {
+  id: string;
+  text: string;
+  level: 1 | 2 | 3;
+};
+
+function extractToc(html: string): TocItem[] {
+  if (typeof window === "undefined") return []; // SSR guard
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const headings = Array.from(doc.querySelectorAll("h1, h2, h3"));
+
+  return headings.map((el, i) => {
+    const level = parseInt(el.tagName[1] ?? "2", 10) as 1 | 2 | 3;
+    const text = el.textContent?.trim() ?? `Seção ${i + 1}`;
+    const id = `toc-heading-${i}`;
+    return { id, text, level };
+  });
+}
+
+/** Injeta IDs nos headings do HTML para que as âncoras funcionem */
+function injectHeadingIds(html: string): string {
+  let counter = 0;
+  return html.replace(/<(h[123])[^>]*>/gi, (match, tag) => {
+    const id = `toc-heading-${counter++}`;
+    // remove id existente e injeta o novo
+    const cleaned = match.replace(/\s*id="[^"]*"/i, "");
+    return cleaned.replace(`<${tag}`, `<${tag} id="${id}"`);
+  });
+}
+
+// ─── TOC Sidebar ──────────────────────────────────────────────────────────────
+
+function TableOfContents({
+  items,
+  activeId,
+}: {
+  items: TocItem[];
+  activeId: string | null;
+}) {
+  if (items.length === 0) return null;
+
+  function scrollTo(id: string) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const offset = 80; // altura do header sticky
+    const top = el.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top, behavior: "smooth" });
+  }
+
+  return (
+    <nav className="space-y-0.5">
+      <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <AlignLeft className="h-3 w-3" /> Índice
+      </p>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => scrollTo(item.id)}
+          className={cn(
+            "block w-full rounded-lg px-2 py-1 text-left text-xs transition hover:bg-muted/60",
+            item.level === 1 && "font-semibold",
+            item.level === 2 && "pl-4 text-muted-foreground",
+            item.level === 3 && "pl-7 text-muted-foreground/70",
+            activeId === item.id && "bg-primary/10 text-primary",
+          )}
+        >
+          {item.text}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// ─── Hook: qual heading está visível ─────────────────────────────────────────
+
+function useActiveHeading(ids: string[]) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (ids.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+            break;
+          }
+        }
+      },
+      { rootMargin: "-20% 0px -70% 0px" },
+    );
+
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [ids]);
+
+  return activeId;
+}
+
+// ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function WikiViewPage() {
   const params = useParams<{ id: string }>();
@@ -43,6 +156,7 @@ export default function WikiViewPage() {
 
   const [loading, setLoading] = useState(true);
   const [wiki, setWiki] = useState<WikiRow | null>(null);
+  const [tocOpen, setTocOpen] = useState(false); // mobile TOC toggle
 
   const canEdit = useMemo(() => {
     if (!wiki || !activePersona) return false;
@@ -52,19 +166,23 @@ export default function WikiViewPage() {
   async function load() {
     setLoading(true);
 
+    // Fix #2: busca wallpaper_slug (TEXT) em vez de wallpaper_id (UUID)
     const query = await safeSelect({
-      missingColumn: "ui_theme",
-      // fallback para schemas que ainda não têm ui_theme
+      missingColumn: "wallpaper_slug",
       primary: () =>
         supabase
           .from("wiki_pages")
-          .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,ui_theme,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
+          .select(
+            "id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_slug,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)",
+          )
           .eq("id", wikiId)
           .maybeSingle(),
       fallback: () =>
         supabase
           .from("wiki_pages")
-          .select(`id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,wallpaper_id,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)`)
+          .select(
+            "id,title,content_html,cover_url,category_id,created_by_persona_id,created_at,updated_at,personas(id,name,avatar_url),wiki_categories(id,name,parent_id)",
+          )
           .eq("id", wikiId)
           .maybeSingle(),
     });
@@ -75,7 +193,6 @@ export default function WikiViewPage() {
       setLoading(false);
       return;
     }
-
     if (!query.data) {
       setWiki(null);
       setLoading(false);
@@ -90,28 +207,45 @@ export default function WikiViewPage() {
     void load();
   }, [wikiId]);
 
-  const parsed = useMemo(() => parseDocContent(wiki?.content_html ?? ""), [wiki?.content_html]);
-  const safeHtml = useMemo(() => renderRichHtml(wiki?.content_html ?? ""), [wiki?.content_html]);
-  const tone = resolveForegroundTheme({
-    wallpaperId: wiki?.wallpaper_id,
-    backgroundColor: parsed.backgroundColor,
-    uiTheme: wiki?.ui_theme,
-  });
-  const darkMode = tone === "light";
+  // ── TOC + headings ──────────────────────────────────────────────────────
+  const processedHtml = useMemo(
+    () =>
+      wiki?.content_html
+        ? injectHeadingIds(renderRichHtml(wiki.content_html))
+        : "",
+    [wiki?.content_html],
+  );
 
+  const toc = useMemo(() => extractToc(processedHtml), [processedHtml]);
+  const headingIds = useMemo(() => toc.map((t) => t.id), [toc]);
+  const activeId = useActiveHeading(headingIds);
+
+  // ─── loading ────────────────────────────────────────────────────────────
   if (loading) {
-    return <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8"><AppPageSkeleton compact /></div>;
+    return (
+      <div className="min-h-dvh w-full px-3 py-4 sm:px-4 md:px-6 md:py-8">
+        <AppPageSkeleton compact />
+      </div>
+    );
   }
 
   if (!wiki) {
     return (
-      <div className="min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8">
+      <div className="min-h-dvh w-full px-3 py-4 sm:px-4 md:px-6 md:py-8">
         <div className="mx-auto w-full max-w-5xl">
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader><CardTitle className="text-base">Wiki não encontrada</CardTitle></CardHeader>
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle className="text-base">Wiki não encontrada</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div>Essa wiki pode ter sido removida ou você não tem acesso.</div>
-              <Button variant="secondary" className="w-full rounded-2xl" onClick={() => router.push("/app/wiki")}>Voltar para Wiki</Button>
+              <p>Essa wiki pode ter sido removida ou você não tem acesso.</p>
+              <Button
+                variant="secondary"
+                className="w-full rounded-2xl"
+                onClick={() => router.push("/app/wiki")}
+              >
+                Voltar para Wiki
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -120,40 +254,142 @@ export default function WikiViewPage() {
   }
 
   return (
-    <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className={`min-h-dvh w-full px-3 sm:px-4 md:px-6 py-4 md:py-8 ${darkMode ? "text-white" : "text-foreground"}`}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-        <header className="flex items-center justify-between gap-2">
-          <Button variant="secondary" className="rounded-2xl shadow-sm" onClick={() => router.push("/app/wiki")}>Voltar</Button>
+    <WallpaperBackground
+      wallpaperSlug={wiki.wallpaper_slug ?? null}
+      className="min-h-dvh w-full px-3 py-4 sm:px-4 md:px-6 md:py-8"
+    >
+      <div className="mx-auto w-full max-w-6xl">
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <header className="mb-4 flex items-center justify-between gap-2">
+          <Button
+            variant="secondary"
+            className="rounded-2xl"
+            onClick={() => router.push("/app/wiki")}
+          >
+            Voltar
+          </Button>
           <div className="flex items-center gap-2">
-            {wiki.category_id ? <Button variant="secondary" className="rounded-2xl shadow-sm" onClick={() => router.push(`/app/wiki/categories/${wiki.category_id}`)}>Pasta</Button> : null}
-            {canEdit ? <Button className="rounded-2xl shadow-sm" onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}>Editar</Button> : null}
+            {/* Mobile: toggle TOC */}
+            {toc.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="gap-1.5 rounded-2xl md:hidden"
+                onClick={() => setTocOpen((v) => !v)}
+              >
+                <AlignLeft className="h-4 w-4" />
+                Índice
+              </Button>
+            )}
+            {wiki.category_id && (
+              <Button
+                variant="secondary"
+                className="rounded-2xl"
+                onClick={() =>
+                  router.push(`/app/wiki/categories/${wiki.category_id}`)
+                }
+              >
+                <BookOpen className="mr-1.5 h-4 w-4" /> Categoria
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                className="gap-1.5 rounded-2xl"
+                onClick={() => router.push(`/app/wiki/${wiki.id}/edit`)}
+              >
+                <Edit2 className="h-4 w-4" /> Editar
+              </Button>
+            )}
           </div>
         </header>
 
-        <div className="overflow-hidden rounded-2xl border border-white/20 bg-transparent backdrop-blur-[1px]">
-          <WallpaperBackground wallpaperId={wiki.wallpaper_id} fallback={parsed.backgroundColor} className="relative h-48 md:h-72 w-full">
-            {wiki.cover_url ? <img src={wiki.cover_url} alt={wiki.title} className="h-full w-full object-cover" /> : null}
-          </WallpaperBackground>
+        {/* ── Layout principal: conteúdo + sidebar (desktop) ──────────────── */}
+        <div className="flex gap-6">
+          {/* ── Conteúdo ──────────────────────────────────────────────────── */}
+          <article className="min-w-0 flex-1 space-y-4">
+            {/* Cover / wallpaper thumbnail */}
+            <div className="overflow-hidden rounded-2xl border border-white/20 bg-card/80 backdrop-blur-sm shadow-sm">
+              <div className="relative h-44 md:h-64 w-full overflow-hidden bg-muted/30">
+                {wiki.cover_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={wiki.cover_url}
+                    alt={wiki.title}
+                    className="h-full w-full object-cover"
+                  />
+                ) : wiki.wallpaper_slug ? (
+                  <WallpaperBackground
+                    wallpaperSlug={wiki.wallpaper_slug}
+                    className="h-full w-full"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <BookOpen className="h-10 w-10 text-muted-foreground/20" />
+                  </div>
+                )}
+              </div>
 
-          <div className="p-4 md:p-6">
-            <div className={`text-xs ${darkMode ? "text-white/75" : "text-muted-foreground"}`}>{wiki.wiki_categories?.name ? `Pasta: ${wiki.wiki_categories.name}` : "Sem pasta"}</div>
-            <h1 className="mt-1 text-2xl md:text-4xl font-semibold leading-snug">{wiki.title}</h1>
-            <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs md:text-sm ${darkMode ? "text-white/80" : "text-muted-foreground"}`}>
-              <span>Atualizado em {new Date(wiki.updated_at).toLocaleString("pt-BR")}</span>
-              <span>•</span>
-              <span>Por {wiki.personas?.name ?? "Persona"}</span>
+              <div className="p-4 md:p-6 space-y-2">
+                {wiki.wiki_categories?.name && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <ChevronRight className="h-3 w-3" />
+                    {wiki.wiki_categories.name}
+                  </div>
+                )}
+
+                {/* Título usa fonte display automaticamente via h1 */}
+                <h1 className="text-2xl md:text-4xl">{wiki.title}</h1>
+
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    Por{" "}
+                    <b className="text-foreground">
+                      {wiki.personas?.name ?? "Persona"}
+                    </b>
+                  </span>
+                  <span>·</span>
+                  <span>
+                    Atualizado em{" "}
+                    {new Date(wiki.updated_at).toLocaleDateString("pt-BR")}
+                  </span>
+                </div>
+
+                <div className="pt-1">
+                  <HighlightButtonGroup
+                    targetType="wiki"
+                    targetId={wiki.id}
+                    title={wiki.title}
+                    coverUrl={wiki.cover_url}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="mt-3"><HighlightButtonGroup targetType="wiki" targetId={wiki.id} title={wiki.title} coverUrl={wiki.cover_url} /></div>
-          </div>
-        </div>
 
-        <Card className="rounded-2xl border-white/20 shadow-sm bg-transparent backdrop-blur-[1px]">
-          <CardHeader className="pb-2"><CardTitle className={`text-base ${darkMode ? "text-white" : ""}`}>Conteúdo</CardTitle></CardHeader>
-          <CardContent
-            className={`prose max-w-none rich-preserve overflow-x-auto break-words text-base md:text-lg leading-7 md:leading-8 ${darkMode ? "prose-invert prose-a:text-white/90 prose-a:underline" : ""}`}
-            dangerouslySetInnerHTML={{ __html: safeHtml }}
-          />
-        </Card>
+            {/* Mobile TOC inline */}
+            {toc.length > 0 && tocOpen && (
+              <div className="rounded-2xl border bg-card/80 p-4 shadow-sm backdrop-blur-sm md:hidden">
+                <TableOfContents items={toc} activeId={activeId} />
+              </div>
+            )}
+
+            {/* Conteúdo da wiki */}
+            <div className="rounded-2xl border border-white/20 bg-card/80 p-4 shadow-sm backdrop-blur-sm md:p-6">
+              <div
+                className="prose prose-sm max-w-none break-words leading-7 md:prose-base md:leading-8"
+                dangerouslySetInnerHTML={{ __html: processedHtml }}
+              />
+            </div>
+          </article>
+
+          {/* ── Sidebar TOC (desktop) ──────────────────────────────────────── */}
+          {toc.length > 0 && (
+            <aside className="hidden w-56 shrink-0 md:block">
+              <div className="sticky top-24 rounded-2xl border bg-card/80 p-4 shadow-sm backdrop-blur-sm">
+                <TableOfContents items={toc} activeId={activeId} />
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
     </WallpaperBackground>
   );

@@ -89,20 +89,17 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
-// ✅ resolve “missing column” do PostgREST (42703) + mensagens típicas
 function isMissingColumnError(err: unknown, column: string) {
   if (!err || typeof err !== "object") return false;
   const anyErr = err as any;
   const code = String(anyErr.code ?? "");
   const message = String(anyErr.message ?? "").toLowerCase();
   const details = String(anyErr.details ?? "").toLowerCase();
-
   const col = column.toLowerCase();
   const mentions =
     message.includes(col) ||
     details.includes(col) ||
     message.includes("column");
-
   return code === "42703" || (mentions && message.includes("does not exist"));
 }
 
@@ -120,11 +117,12 @@ export default function ChatRoomPage() {
   const [sending, setSending] = useState(false);
 
   const [chatTitle, setChatTitle] = useState("Chat");
-  const [chatWallpaperId, setChatWallpaperId] = useState<string | null>(null);
+  // Fix #2: usar wallpaper_slug (TEXT) em vez de wallpaper_id (UUID FK)
+  const [chatWallpaperSlug, setChatWallpaperSlug] = useState<string | null>(
+    null,
+  );
 
-  // ✅ “reply_to” pode não existir no banco -> fallback automático
   const [hasReplyToColumn, setHasReplyToColumn] = useState(true);
-
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pendingNewCount, setPendingNewCount] = useState(0);
@@ -145,7 +143,7 @@ export default function ChatRoomPage() {
   );
 
   const didInitialScrollRef = useRef(false);
-
+  // Fix #3: listRef com min-h-0 no JSX para scroll funcionar no mobile
   const listRef = useRef<HTMLDivElement>(null);
 
   function scrollToBottom(smooth = false) {
@@ -158,7 +156,6 @@ export default function ChatRoomPage() {
   function performInitialScroll() {
     if (didInitialScrollRef.current) return;
     didInitialScrollRef.current = true;
-
     requestAnimationFrame(() => {
       requestAnimationFrame(() => scrollToBottom(false));
     });
@@ -167,8 +164,7 @@ export default function ChatRoomPage() {
   function isNearBottom() {
     const el = listRef.current;
     if (!el) return true;
-    const threshold = 240;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 240;
   }
 
   async function fetchProfilesMap(rows: MessageRow[]) {
@@ -177,16 +173,12 @@ export default function ChatRoomPage() {
         rows.map((r) => r.personas.user_id).filter((x): x is string => !!x),
       ),
     );
-
     if (userIds.length === 0) return new Map<string, ProfileRow>();
-
     const profilesRes = await supabase
       .from("profiles")
       .select("id,username,display_name,avatar_url")
       .in("id", userIds);
-
     if (profilesRes.error) return new Map<string, ProfileRow>();
-
     return new Map(
       (profilesRes.data ?? []).map((p) => [p.id, p as ProfileRow]),
     );
@@ -199,7 +191,6 @@ export default function ChatRoomPage() {
     return rows.map((row) => {
       const uid = row.personas.user_id;
       const profile = uid ? profileMap.get(uid) : undefined;
-
       return {
         id: row.id,
         content: row.content,
@@ -225,21 +216,18 @@ export default function ChatRoomPage() {
   ) {
     const baseCols =
       "id,persona_id,content,created_at,personas!inner(id,user_id,name,avatar_url)";
-    const withReplyCols = `id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)`;
+    const withReplyCols =
+      "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)";
 
-    // tenta com reply_to se estiver habilitado
     if (hasReplyToColumn) {
       let q = supabase
         .from("messages")
         .select(withReplyCols)
         .eq("chat_id", validChatId);
-
       if (opts.before) q = q.lt("created_at", opts.before);
-
       const res = await q
         .order("created_at", { ascending: false })
         .limit(opts.limit);
-
       if (res.error && isMissingColumnError(res.error, "reply_to")) {
         setHasReplyToColumn(false);
       } else {
@@ -247,7 +235,6 @@ export default function ChatRoomPage() {
       }
     }
 
-    // fallback sem reply_to
     let q2 = supabase
       .from("messages")
       .select(baseCols)
@@ -256,19 +243,31 @@ export default function ChatRoomPage() {
     return q2.order("created_at", { ascending: false }).limit(opts.limit);
   }
 
+  /** Fix: atualiza last_read_at quando o usuário abre o chat */
+  async function markAsRead(validChatId: string) {
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return;
+    // Atualiza last_read_at em chat_participants para este usuário neste chat
+    await supabase
+      .from("chat_participants")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("chat_id", validChatId)
+      .eq("user_id", userData.user.id);
+  }
+
   async function loadInitial(validChatId: string) {
     setLoading(true);
     try {
-      // chat title + wallpaper (fallback se coluna não existir)
+      // Fix #2: busca wallpaper_slug (TEXT) em vez de wallpaper_id (UUID)
       let chatRes = await supabase
         .from("chats")
-        .select("title,wallpaper_id")
+        .select("title,wallpaper_slug")
         .eq("id", validChatId)
         .maybeSingle();
 
       if (
         chatRes.error &&
-        isMissingColumnError(chatRes.error, "wallpaper_id")
+        isMissingColumnError(chatRes.error, "wallpaper_slug")
       ) {
         chatRes = await supabase
           .from("chats")
@@ -278,9 +277,9 @@ export default function ChatRoomPage() {
       }
 
       if (chatRes.data?.title) setChatTitle(chatRes.data.title);
-      setChatWallpaperId(
-        (chatRes.data as { wallpaper_id?: string | null } | null)
-          ?.wallpaper_id ?? null,
+      setChatWallpaperSlug(
+        (chatRes.data as { wallpaper_slug?: string | null } | null)
+          ?.wallpaper_slug ?? null,
       );
 
       didInitialScrollRef.current = false;
@@ -303,6 +302,9 @@ export default function ChatRoomPage() {
       setHasMore(rows.length === PAGE_SIZE);
 
       performInitialScroll();
+
+      // Marca como lido ao abrir
+      void markAsRead(validChatId);
     } finally {
       setLoading(false);
     }
@@ -317,13 +319,11 @@ export default function ChatRoomPage() {
       messages.length === 0
     )
       return;
-
     setLoadingMore(true);
     try {
       const el = listRef.current;
       const prevScrollHeight = el?.scrollHeight ?? 0;
       const prevScrollTop = el?.scrollTop ?? 0;
-
       const oldest = messages[0];
 
       const res = await selectMessages(chatId, {
@@ -349,12 +349,11 @@ export default function ChatRoomPage() {
       setMessages((prev) => [...mapped, ...prev]);
       setHasMore(rows.length === PAGE_SIZE);
 
-      // mantém scroll no lugar
       setTimeout(() => {
         const nextEl = listRef.current;
         if (!nextEl) return;
-        const nextScrollHeight = nextEl.scrollHeight;
-        nextEl.scrollTop = nextScrollHeight - prevScrollHeight + prevScrollTop;
+        nextEl.scrollTop =
+          nextEl.scrollHeight - prevScrollHeight + prevScrollTop;
       }, 0);
     } finally {
       setLoadingMore(false);
@@ -367,14 +366,12 @@ export default function ChatRoomPage() {
     const withReplyCols =
       "id,persona_id,content,created_at,reply_to,personas!inner(id,user_id,name,avatar_url)";
 
-    // tenta com reply_to primeiro se suportado
     if (hasReplyToColumn) {
       const res = await supabase
         .from("messages")
         .select(withReplyCols)
         .eq("id", messageId)
         .maybeSingle();
-
       if (res.error && isMissingColumnError(res.error, "reply_to")) {
         setHasReplyToColumn(false);
       } else if (!res.error && res.data) {
@@ -384,15 +381,12 @@ export default function ChatRoomPage() {
       }
     }
 
-    // fallback sem reply_to
     const res2 = await supabase
       .from("messages")
       .select(baseCols)
       .eq("id", messageId)
       .maybeSingle();
-
     if (res2.error || !res2.data) return null;
-
     const row2 = res2.data as unknown as MessageRow;
     const profileMap2 = await fetchProfilesMap([row2]);
     return mapRows([row2], profileMap2)[0] ?? null;
@@ -405,7 +399,6 @@ export default function ChatRoomPage() {
       `[data-message-id="${messageId}"]`,
     );
     if (!target) return;
-
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     setHighlightedMessageId(messageId);
     window.setTimeout(() => {
@@ -450,23 +443,18 @@ export default function ChatRoomPage() {
 
   async function sendMessage() {
     if (!chatId || !isUuid(chatId) || !activePersona || sending) return;
-
     const cleaned = (inputHtml || "").trim();
     if (isRichHtmlEmpty(cleaned)) return;
 
     setSending(true);
     try {
       const fallbackPrefix = replyTo
-        ? `<blockquote><small>Respondendo a ${DOMPurify.sanitize(
-            replyTo.name,
-          )}: ${DOMPurify.sanitize(replyTo.preview)}</small></blockquote>`
+        ? `<blockquote><small>Respondendo a ${DOMPurify.sanitize(replyTo.name)}: ${DOMPurify.sanitize(replyTo.preview)}</small></blockquote>`
         : "";
-
       const contentToSend = hasReplyToColumn
         ? cleaned
         : `${fallbackPrefix}${cleaned}`;
 
-      // tenta inserir com reply_to se suportado
       let insertedId: string | null = null;
 
       if (hasReplyToColumn) {
@@ -493,7 +481,6 @@ export default function ChatRoomPage() {
         }
       }
 
-      // fallback sem reply_to
       if (!insertedId) {
         const fallbackRes = await supabase
           .from("messages")
@@ -515,7 +502,6 @@ export default function ChatRoomPage() {
       setInputHtml("");
       setReplyTo(null);
 
-      // presença: parar typing
       if (typingChannelRef.current) {
         void typingChannelRef.current.track({
           typing: false,
@@ -525,16 +511,16 @@ export default function ChatRoomPage() {
         } satisfies TypingPresence);
       }
 
-      // se eu estou no fim, rola suave
-      if (insertedId && isNearBottom()) {
+      // Atualiza last_read_at ao enviar também
+      void markAsRead(chatId);
+
+      if (insertedId && isNearBottom())
         setTimeout(() => scrollToBottom(true), 0);
-      }
     } finally {
       setSending(false);
     }
   }
 
-  // realtime INSERT (sempre busca 1 msg pelo id pra render completo)
   useEffect(() => {
     if (!chatId || !isUuid(chatId)) {
       setLoading(false);
@@ -555,8 +541,7 @@ export default function ChatRoomPage() {
           filter: `chat_id=eq.${chatId}`,
         },
         async (payload) => {
-          const newRow = payload.new;
-          const newId = (newRow as any)?.id;
+          const newId = (payload.new as any)?.id;
           if (typeof newId !== "string") return;
 
           const nearBottom = isNearBottom();
@@ -573,6 +558,8 @@ export default function ChatRoomPage() {
           if (!inserted) return;
           if (nearBottom) {
             setTimeout(() => scrollToBottom(true), 0);
+            // Marca como lido quando nova mensagem chega e está no fim
+            void markAsRead(chatId);
           } else {
             setPendingNewCount((prev) => prev + 1);
           }
@@ -586,10 +573,8 @@ export default function ChatRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId]);
 
-  // garante foco na mensagem mais recente ao abrir no desktop/mobile
   useEffect(() => {
     if (loading || messages.length === 0) return;
-
     const t1 = window.setTimeout(() => scrollToBottom(false), 0);
     const t2 = window.setTimeout(() => scrollToBottom(false), 140);
     return () => {
@@ -598,7 +583,6 @@ export default function ChatRoomPage() {
     };
   }, [loading, chatId]);
 
-  // presença typing
   useEffect(() => {
     if (!chatId || !isUuid(chatId) || !activePersona) return;
 
@@ -612,14 +596,13 @@ export default function ChatRoomPage() {
       const names = Object.values(presence)
         .flatMap((entries) => entries)
         .filter(
-          (entry) =>
-            entry.typing &&
-            entry.personaId !== activePersona.id &&
-            Date.now() - Number(entry.ts ?? 0) < 3000,
+          (e) =>
+            e.typing &&
+            e.personaId !== activePersona.id &&
+            Date.now() - Number(e.ts ?? 0) < 3000,
         )
-        .map((entry) => entry.personaName)
+        .map((e) => e.personaName)
         .slice(0, 2);
-
       setTypingUsers(Array.from(new Set(names)));
     };
 
@@ -650,15 +633,12 @@ export default function ChatRoomPage() {
     };
   }, [chatId, activePersona]);
 
-  // scroll handler (zera badge de novas msgs quando chega no fim)
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-
     function onScroll() {
       if (isNearBottom()) setPendingNewCount(0);
     }
-
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -669,7 +649,6 @@ export default function ChatRoomPage() {
       | { kind: "msg"; m: UiMessage; mine: boolean }
     > = [];
     let lastDay = "";
-
     for (const m of messages) {
       const label = dayLabel(m.created_at);
       if (label !== lastDay) {
@@ -678,17 +657,18 @@ export default function ChatRoomPage() {
       }
       out.push({ kind: "msg", m, mine: m.persona_id === activePersona?.id });
     }
-
     return out;
   }, [messages, activePersona?.id]);
 
   return (
+    // Fix #2: wallpaperSlug em vez de wallpaperId
     <WallpaperBackground
-      wallpaperId={chatWallpaperId}
+      wallpaperSlug={chatWallpaperSlug}
       className="min-h-dvh w-full"
     >
-      <div className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col">
-        <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
+      {/* Fix #3: flex-col + h-dvh → o listRef com min-h-0 permite scroll real no mobile */}
+      <div className="mx-auto flex h-dvh w-full max-w-[1200px] flex-col">
+        <header className="shrink-0 border-b bg-background/90 backdrop-blur">
           <div className="flex items-center justify-between px-4 py-3 md:px-6">
             <Button
               variant="secondary"
@@ -697,23 +677,22 @@ export default function ChatRoomPage() {
             >
               Voltar
             </Button>
-
             <div className="text-center">
-              <p className="text-lg font-semibold">{chatTitle}</p>
+              <p className="text-base font-semibold">{chatTitle}</p>
               <p className="text-xs text-muted-foreground">
                 {activePersona
                   ? `Falando como ${activePersona.name}`
                   : "Selecione uma persona"}
               </p>
             </div>
-
             <div className="w-20" />
           </div>
         </header>
 
+        {/* Fix #3: min-h-0 é ESSENCIAL — sem ele o flex-child não respeita a altura do pai e overflow-y-auto não cria scroll */}
         <div
           ref={listRef}
-          className="flex-1 min-h-0 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
         >
           {!chatId || !isUuid(chatId) ? (
             <p className="text-sm text-muted-foreground">Chat inválido.</p>
@@ -740,7 +719,7 @@ export default function ChatRoomPage() {
                 </p>
               )}
 
-              {pendingNewCount > 0 ? (
+              {pendingNewCount > 0 && (
                 <div className="sticky top-2 z-20 flex justify-center">
                   <button
                     type="button"
@@ -750,7 +729,7 @@ export default function ChatRoomPage() {
                     {pendingNewCount} novas mensagens
                   </button>
                 </div>
-              ) : null}
+              )}
 
               {grouped.map((item, idx) => {
                 if (item.kind === "day") {
@@ -776,11 +755,7 @@ export default function ChatRoomPage() {
                     className={`flex ${item.mine ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${
-                        item.mine
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted"
-                      } ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] transition ${item.mine ? "bg-primary text-primary-foreground" : "bg-muted"} ${highlightedMessageId === item.m.id ? "ring-2 ring-primary" : ""}`}
                     >
                       <UserCardModal
                         user={{
@@ -795,14 +770,13 @@ export default function ChatRoomPage() {
                           className="mb-2 flex items-center gap-2 text-left"
                         >
                           <div className="h-6 w-6 overflow-hidden rounded-full border bg-background/50">
-                            {avatar ? (
-                              // eslint-disable-next-line @next/next/no-img-element
+                            {avatar && (
                               <img
                                 src={avatar}
                                 alt="avatar"
                                 className="h-full w-full object-cover"
                               />
-                            ) : null}
+                            )}
                           </div>
                           <span className="text-xs font-semibold opacity-80">
                             {item.m.persona.display_name ?? item.m.persona.name}
@@ -810,7 +784,7 @@ export default function ChatRoomPage() {
                         </button>
                       </UserCardModal>
 
-                      <div className="mb-2 flex gap-2">
+                      <div className="mb-2">
                         <button
                           type="button"
                           className="text-xs opacity-80 underline"
@@ -831,7 +805,7 @@ export default function ChatRoomPage() {
                         </button>
                       </div>
 
-                      {hasReplyToColumn && item.m.reply_to ? (
+                      {hasReplyToColumn && item.m.reply_to && (
                         <button
                           type="button"
                           className="mb-2 block w-full rounded-xl border border-border/70 bg-background/60 px-2 py-1 text-left text-xs text-muted-foreground"
@@ -848,7 +822,7 @@ export default function ChatRoomPage() {
                             "Resposta a uma mensagem (toque para carregar)"
                           )}
                         </button>
-                      ) : null}
+                      )}
 
                       <div
                         className="prose max-w-none break-words text-sm"
@@ -862,17 +836,17 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        <div className="border-t bg-background/85 backdrop-blur p-3 md:p-4">
-          {typingUsers.length > 0 ? (
+        <div className="shrink-0 border-t bg-background/90 backdrop-blur p-3 md:p-4">
+          {typingUsers.length > 0 && (
             <div className="mb-2 text-xs text-muted-foreground">
               {typingUsers.join(", ")}{" "}
               {typingUsers.length === 1
                 ? "está digitando…"
                 : "estão digitando…"}
             </div>
-          ) : null}
+          )}
 
-          {replyTo ? (
+          {replyTo && (
             <div className="mb-2 flex items-center justify-between rounded-2xl border bg-muted/40 px-3 py-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold">
@@ -891,17 +865,14 @@ export default function ChatRoomPage() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-          ) : null}
+          )}
 
           <div className="rounded-2xl border bg-background p-2">
             <RichTextEditor
               valueHtml={inputHtml}
               onChangeHtml={(v) => {
                 setInputHtml(v);
-
                 if (!activePersona || !typingChannelRef.current) return;
-
-                // throttle “typing true”
                 if (Date.now() - typingTrackThrottleRef.current > 800) {
                   typingTrackThrottleRef.current = Date.now();
                   void typingChannelRef.current.track({
@@ -911,11 +882,8 @@ export default function ChatRoomPage() {
                     ts: Date.now(),
                   } satisfies TypingPresence);
                 }
-
-                // debounce “typing false”
-                if (typingStopTimeoutRef.current) {
+                if (typingStopTimeoutRef.current)
                   window.clearTimeout(typingStopTimeoutRef.current);
-                }
                 typingStopTimeoutRef.current = window.setTimeout(() => {
                   if (!typingChannelRef.current || !activePersona) return;
                   void typingChannelRef.current.track({

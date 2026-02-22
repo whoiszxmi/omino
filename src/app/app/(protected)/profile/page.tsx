@@ -9,9 +9,29 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { renderRichHtml } from "@/lib/render/richText";
 import HighlightButtonGroup from "@/components/highlights/HighlightButtonGroup";
-import { getMyHighlights, type Highlight } from "@/lib/highlights/highlights";
+import {
+  getMyHighlights,
+  normalizeHighlights,
+  type Highlight,
+  type NormalizedHighlight,
+} from "@/lib/highlights/highlights";
 import ProfileWikisGrid from "@/components/profile/ProfileWikisGrid";
 import { CreateChooser } from "@/components/app/CreateChooser";
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Edit2,
+  PenLine,
+  Plus,
+  Star,
+  UserRound,
+  Users,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import WallpaperBackground from "@/components/ui/WallpaperBackground";
+
+// ─── tipos ─────────────────────────────────────────────────────────────────────
 
 type Profile = {
   id: string;
@@ -27,8 +47,192 @@ type PostRow = {
   content: string;
   created_at: string;
   persona_id: string;
+  wallpaper_slug: string | null;
   personas: { name: string; avatar_url: string | null; user_id: string } | null;
 };
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function htmlToText(html: string, max = 200) {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+function relTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const d = Math.floor(diff / 86_400_000);
+  if (d === 0) return "hoje";
+  if (d === 1) return "ontem";
+  if (d < 30) return `${d}d atrás`;
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+// ─── PostPreviewCard ──────────────────────────────────────────────────────────
+// Fix #14: previews colapsados em vez de HTML completo
+
+function PostPreviewCard({ p, onOpen }: { p: PostRow; onOpen: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = htmlToText(p.content);
+
+  return (
+    <div className="overflow-hidden rounded-xl border transition hover:shadow-sm">
+      {/* Faixa wallpaper */}
+      {p.wallpaper_slug && (
+        <div className="h-10 w-full cursor-pointer" onClick={onOpen}>
+          <WallpaperBackground
+            wallpaperSlug={p.wallpaper_slug}
+            className="h-full w-full"
+          />
+        </div>
+      )}
+
+      <div className="p-3 space-y-2">
+        {/* Meta */}
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">
+              {p.personas?.name ?? "Persona"}
+            </span>
+            <span>·</span>
+            <span>{relTime(p.created_at)}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted/60 transition"
+          >
+            Abrir
+          </button>
+        </div>
+
+        {/* Conteúdo — colapsado por padrão (Fix #14) */}
+        {!expanded ? (
+          <p className="line-clamp-2 text-sm text-foreground/80">{preview}</p>
+        ) : (
+          <div
+            className="prose prose-sm max-w-none break-words text-sm"
+            dangerouslySetInnerHTML={{ __html: renderRichHtml(p.content) }}
+          />
+        )}
+
+        {/* Toggle */}
+        <button
+          type="button"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="h-3 w-3" /> Recolher
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3 w-3" /> Ver mais
+            </>
+          )}
+        </button>
+
+        <div className="border-t pt-2">
+          <HighlightButtonGroup
+            targetType="post"
+            targetId={p.id}
+            title={`Post de ${p.personas?.name ?? "Persona"}`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── HighlightGrid ────────────────────────────────────────────────────────────
+
+function HighlightGrid({
+  highlights,
+  loading,
+}: {
+  highlights: NormalizedHighlight[];
+  loading: boolean;
+}) {
+  const router = useRouter();
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="aspect-square animate-pulse rounded-xl border bg-muted/40"
+          />
+        ))}
+      </div>
+    );
+  }
+  if (highlights.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+        Nenhum destaque adicionado ainda.
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {highlights.map((item) => {
+        const isWiki = item.target_type === "wiki";
+        const title = item.title ?? (isWiki ? "Wiki" : "Post");
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className="group overflow-hidden rounded-xl border text-left transition hover:shadow-md active:scale-[0.98]"
+            onClick={() =>
+              router.push(
+                isWiki
+                  ? `/app/wiki/${item.target_id}`
+                  : `/app/post/${item.target_id}`,
+              )
+            }
+          >
+            <div className="relative h-20 bg-muted/40">
+              {item.cover_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={item.cover_url}
+                  alt={title}
+                  className="h-full w-full object-cover transition group-hover:scale-105"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  {isWiki ? (
+                    <BookOpen className="h-5 w-5 text-muted-foreground/30" />
+                  ) : (
+                    <PenLine className="h-5 w-5 text-muted-foreground/30" />
+                  )}
+                </div>
+              )}
+              <span
+                className={cn(
+                  "absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white",
+                  isWiki ? "bg-blue-500/90" : "bg-violet-500/90",
+                )}
+              >
+                {isWiki ? "Wiki" : "Post"}
+              </span>
+            </div>
+            <div className="p-2">
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug">
+                {title}
+              </p>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
   const { activePersona } = useActivePersona();
@@ -36,74 +240,13 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const [followers, setFollowers] = useState<number>(0);
-  const [following, setFollowing] = useState<number>(0);
-
+  const [followers, setFollowers] = useState(0);
+  const [following, setFollowing] = useState(0);
   const [posts, setPosts] = useState<PostRow[]>([]);
-  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [highlights, setHighlights] = useState<NormalizedHighlight[]>([]);
   const [highlightsLoading, setHighlightsLoading] = useState(true);
-
   const [tab, setTab] = useState<"posts" | "wikis" | "highlights">("posts");
   const [createOpen, setCreateOpen] = useState(false);
-
-  function handleHighlightToggle(
-    scope: "profile" | "community",
-    highlighted: boolean,
-    payload: {
-      targetType: "post" | "wiki";
-      targetId: string;
-      title?: string;
-      coverUrl?: string | null;
-    },
-  ) {
-    if (scope !== "profile") return;
-
-    if (!highlighted) {
-      setHighlights((prev) =>
-        prev.filter(
-          (item) =>
-            !(
-              item.scope === "profile" &&
-              item.target_type === payload.targetType &&
-              item.target_id === payload.targetId
-            ),
-        ),
-      );
-      return;
-    }
-
-    const newRow: Highlight = {
-      id: crypto.randomUUID(),
-      scope: "profile",
-      user_id: "me",
-      target_type: payload.targetType,
-      target_id: payload.targetId,
-      title: payload.title ?? null,
-      cover_url: payload.coverUrl ?? null,
-      sort_order: 0,
-      created_at: new Date().toISOString(),
-    };
-
-    setHighlights((prev) => {
-      const exists = prev.some(
-        (item) =>
-          item.scope === "profile" &&
-          item.target_type === payload.targetType &&
-          item.target_id === payload.targetId,
-      );
-      return exists ? prev : [newRow, ...prev];
-    });
-  }
-
-  const activePersonaTag = useMemo(() => {
-    if (!activePersona) return null;
-    return {
-      name: activePersona.name,
-      bio: (activePersona as any).bio ?? null,
-      avatar_url: (activePersona as any).avatar_url ?? null,
-    };
-  }, [activePersona]);
 
   async function ensureProfileRow(userId: string) {
     const { data, error } = await supabase
@@ -123,7 +266,6 @@ export default function ProfilePage() {
         .upsert({ id: userId }, { onConflict: "id" })
         .select("id, username, display_name, bio, avatar_url, banner_url")
         .single();
-
       if (insErr) {
         console.error("ERRO profiles upsert:", insErr);
         return null;
@@ -139,19 +281,15 @@ export default function ProfilePage() {
 
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
-
     if (!user) {
       setLoading(false);
       router.replace("/app/login");
       return;
-      return;
     }
 
-    // profile
     const profData = await ensureProfileRow(user.id);
     setProfile(profData);
 
-    // followers / following
     const [f1, f2] = await Promise.all([
       supabase
         .from("follows")
@@ -162,25 +300,14 @@ export default function ProfilePage() {
         .select("following_id", { count: "exact", head: true })
         .eq("follower_id", user.id),
     ]);
-
     setFollowers(f1.count ?? 0);
     setFollowing(f2.count ?? 0);
 
-    // posts do usuário (via join personas.user_id)
+    // Fix #14: inclui wallpaper_slug para renderizar faixa no card
     const postsRes = await supabase
       .from("posts")
       .select(
-        `
-        id,
-        content,
-        created_at,
-        persona_id,
-        personas!inner (
-          name,
-          avatar_url,
-          user_id
-        )
-      `,
+        "id, content, created_at, persona_id, wallpaper_slug, personas!inner(name, avatar_url, user_id)",
       )
       .eq("personas.user_id", user.id)
       .order("created_at", { ascending: false })
@@ -189,87 +316,88 @@ export default function ProfilePage() {
     if (postsRes.error) console.error("ERRO posts:", postsRes.error);
     setPosts((postsRes.data ?? []) as any);
 
-    // highlights
     setHighlightsLoading(true);
-    const Highlights = await getMyHighlights("profile");
-    setHighlights(Highlights);
+    const raw = await getMyHighlights("profile");
+    const normalized = await normalizeHighlights(raw);
+    setHighlights(normalized.filter((h) => !h.isRemoved));
     setHighlightsLoading(false);
 
     setLoading(false);
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
-  const canCreate = !!activePersona;
+  const displayName = profile?.display_name ?? profile?.username ?? "Sem nome";
+  const username = profile?.username ?? "sem-username";
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col gap-4 p-4">
       {loading ? (
-        <div className="text-sm text-muted-foreground">Carregando...</div>
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-24 animate-pulse rounded-2xl border bg-muted/40"
+            />
+          ))}
+        </div>
       ) : !profile ? (
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle className="text-base">Perfil não encontrado</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Não consegui carregar seu perfil. Tente recarregar.
-          </CardContent>
-          <div className="px-4 pb-4">
-            <Button className="w-full rounded-2xl" onClick={load}>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>Não conseguimos carregar seu perfil. Tente recarregar.</p>
+            <Button className="w-full rounded-full" onClick={load}>
               Recarregar
             </Button>
-          </div>
+          </CardContent>
         </Card>
       ) : (
         <>
-          {/* Header do perfil + criar */}
+          {/* ── Cabeçalho ─────────────────────────────────────────────────── */}
           <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <div className="text-lg font-semibold">Seu perfil</div>
-              <div className="truncate text-xs text-muted-foreground">
-                {activePersona ? `Ativo: ${activePersona.name}` : "Sem persona"}
-              </div>
-            </div>
-
+            <h1 className="page-title">Perfil</h1>
             <div className="flex gap-2">
               <Button
                 variant="secondary"
-                className="rounded-2xl"
+                size="sm"
+                className="rounded-full gap-1.5"
                 onClick={() => router.push("/app/profile/edit")}
               >
-                Editar
+                <Edit2 className="h-3.5 w-3.5" /> Editar
               </Button>
-
               <Button
-                className="rounded-2xl"
+                size="sm"
+                className="rounded-full gap-1.5"
                 onClick={() => setCreateOpen(true)}
-                disabled={!canCreate}
-                title={
-                  !canCreate ? "Selecione uma persona para criar" : "Criar"
-                }
+                disabled={!activePersona}
               >
-                Criar
+                <Plus className="h-3.5 w-3.5" /> Criar
               </Button>
             </div>
           </div>
 
-          {/* Banner + avatar */}
-          <div className="overflow-hidden rounded-2xl border">
-            <div className="relative h-28 bg-muted">
-              {profile.banner_url ? (
+          {/* ── Banner + avatar + info ─────────────────────────────────────── */}
+          <div className="overflow-hidden rounded-2xl border card-raised">
+            {/* Banner */}
+            <div className="relative h-32 bg-gradient-to-br from-primary/20 to-accent/30">
+              {profile.banner_url && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={profile.banner_url}
                   alt="banner"
                   className="h-full w-full object-cover"
                 />
-              ) : null}
+              )}
             </div>
 
-            <div className="flex items-start gap-3 p-4">
-              <div className="-mt-10 h-16 w-16 overflow-hidden rounded-2xl border bg-background">
+            {/* Info */}
+            <div className="px-4 pb-4">
+              {/* Avatar sobrepõe o banner */}
+              <div className="-mt-8 mb-3 h-16 w-16 overflow-hidden rounded-2xl border-2 border-background bg-muted shadow-md">
                 {profile.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -277,251 +405,154 @@ export default function ProfilePage() {
                     alt="avatar"
                     className="h-full w-full object-cover"
                   />
-                ) : null}
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-primary/10">
+                    <UserRound className="h-7 w-7 text-primary/50" />
+                  </div>
+                )}
               </div>
 
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold">
-                  {profile.display_name ?? profile.username ?? "Sem nome"}
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  @{profile.username ?? "sem-username"}
-                </div>
-
-                {profile.bio ? (
-                  <div className="mt-2 text-sm text-muted-foreground">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold leading-tight">
+                  {displayName}
+                </h2>
+                <p className="text-xs text-muted-foreground">@{username}</p>
+                {profile.bio && (
+                  <p className="mt-2 text-sm text-muted-foreground">
                     {profile.bio}
-                  </div>
-                ) : null}
-
-                {/* Persona ativa bem explícita */}
-                <div className="mt-3 rounded-2xl border bg-muted/30 p-3">
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    Persona ativa
-                  </div>
-
-                  {activePersonaTag ? (
-                    <div className="mt-2 flex items-center gap-3">
-                      <div className="h-9 w-9 overflow-hidden rounded-xl border bg-background">
-                        {activePersonaTag.avatar_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={activePersonaTag.avatar_url}
-                            alt="persona avatar"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : null}
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">
-                          {activePersonaTag.name}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {activePersonaTag.bio ?? "(sem descrição)"}
-                        </div>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="ml-auto rounded-2xl"
-                        onClick={() => router.push("/app/personas")}
-                      >
-                        Trocar
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Nenhuma persona selecionada.
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="ml-2 rounded-2xl"
-                        onClick={() => router.push("/app/personas")}
-                      >
-                        Selecionar
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-3 flex items-center gap-2 text-xs">
-                  <button
-                    className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                    onClick={() => router.push("/app/profile/followers")}
-                    type="button"
-                  >
-                    <b className="text-foreground">{followers}</b> seguidores
-                  </button>
-
-                  <button
-                    className="rounded-full border px-3 py-1 text-muted-foreground hover:bg-muted/60"
-                    onClick={() => router.push("/app/profile/following")}
-                    type="button"
-                  >
-                    <b className="text-foreground">{following}</b> seguindo
-                  </button>
-                </div>
+                  </p>
+                )}
               </div>
+
+              {/* Seguidores */}
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition hover:bg-muted/60"
+                  onClick={() => router.push("/app/profile/followers")}
+                >
+                  <Users className="h-3 w-3" />
+                  <b>{followers}</b> seguidores
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition hover:bg-muted/60"
+                  onClick={() => router.push("/app/profile/following")}
+                >
+                  <b>{following}</b> seguindo
+                </button>
+              </div>
+
+              {/* Persona ativa — compacta */}
+              {activePersona && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted">
+                    {activePersona.avatar_url ? (
+                      <img
+                        src={activePersona.avatar_url}
+                        alt={activePersona.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-[10px] font-bold">
+                        {activePersona.name.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs">
+                    Usando <b>{activePersona.name}</b>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-6 rounded-lg px-2 text-xs"
+                    onClick={() => router.push("/app/personas")}
+                  >
+                    Trocar
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Abas (Amino-like) */}
-          <Card className="rounded-2xl">
-            <CardContent className="p-3">
-              <ToggleGroup
-                type="single"
-                value={tab}
-                onValueChange={(v) => setTab((v as any) || "posts")}
-                className="flex flex-wrap gap-2"
+          {/* ── Tabs ──────────────────────────────────────────────────────── */}
+          <ToggleGroup
+            type="single"
+            value={tab}
+            onValueChange={(v) => setTab((v as any) || "posts")}
+            className="flex gap-2"
+          >
+            {[
+              { value: "posts", label: "Posts", icon: PenLine },
+              { value: "wikis", label: "Wikis", icon: BookOpen },
+              { value: "highlights", label: "Destaques", icon: Star },
+            ].map(({ value, label, icon: Icon }) => (
+              <ToggleGroupItem
+                key={value}
+                value={value}
+                className="flex-1 gap-1.5 rounded-xl border text-xs"
               >
-                <ToggleGroupItem value="posts" className="rounded-2xl border">
-                  Posts
-                </ToggleGroupItem>
-                <ToggleGroupItem value="wikis" className="rounded-2xl border">
-                  Wikis
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="highlights"
-                  className="rounded-2xl border"
-                >
-                  Destaques
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </CardContent>
-          </Card>
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
 
-          {/* Conteúdo da aba */}
-          {tab === "wikis" ? (
-            <ProfileWikisGrid personaId={activePersona?.id ?? null} />
-          ) : tab === "highlights" ? (
-            <Card className="rounded-2xl">
-              <CardHeader>
-                <CardTitle className="text-base">Destaques</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {highlightsLoading ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    {Array.from({ length: 4 }).map((_, index) => (
-                      <div
-                        key={index}
-                        className="aspect-square rounded-2xl border bg-muted/40 animate-pulse"
-                      />
-                    ))}
-                  </div>
-                ) : highlights.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    Você ainda não adicionou destaques.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {highlights.map((item) => {
-                      const isWiki = item.target_type === "wiki";
-                      const title = item.title ?? (isWiki ? "Wiki" : "Post");
+          {/* ── Conteúdo das tabs ─────────────────────────────────────────── */}
 
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="aspect-square overflow-hidden rounded-2xl border text-left transition hover:bg-muted/30"
-                          onClick={() => {
-                            router.push(
-                              isWiki
-                                ? `/app/wiki/${item.target_id}`
-                                : `/app/post/${item.target_id}`,
-                            );
-                          }}
-                        >
-                          <div className="flex h-full flex-col">
-                            <div className="flex-1 bg-muted/40">
-                              {item.cover_url ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={item.cover_url}
-                                  alt={title}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : null}
-                            </div>
-                            <div className="space-y-2 p-3">
-                              <span className="inline-flex rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                                {isWiki ? "Wiki" : "Post"}
-                              </span>
-                              <div className="truncate text-sm font-medium">
-                                {title}
-                              </div>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="rounded-2xl">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Seus posts</CardTitle>
+          {tab === "posts" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">
+                  {posts.length === 0
+                    ? "Nenhum post"
+                    : `${posts.length} post${posts.length > 1 ? "s" : ""}`}
+                </p>
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="rounded-2xl"
+                  className="rounded-full gap-1.5"
                   onClick={() => router.push("/app/feed/new")}
                   disabled={!activePersona}
                 >
-                  Novo
+                  <Plus className="h-3.5 w-3.5" /> Novo
                 </Button>
-              </CardHeader>
+              </div>
 
-              <CardContent className="space-y-3">
-                {posts.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    Você ainda não postou nada.
-                  </div>
-                ) : (
-                  posts.map((p) => (
-                    <div key={p.id} className="rounded-2xl border p-3">
-                      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                        <span className="truncate">
-                          {p.personas?.name ?? "Persona"} •{" "}
-                          {new Date(p.created_at).toLocaleString("pt-BR")}
-                        </span>
-
-                        <button
-                          className="rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted/60"
-                          type="button"
-                          onClick={() => router.push(`/app/post/${p.id}`)}
-                        >
-                          Abrir
-                        </button>
-                      </div>
-
-                      <div
-                        className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                        dangerouslySetInnerHTML={{
-                          __html: renderRichHtml(p.content),
-                        }}
-                      />
-
-                      <div className="mt-3">
-                        <HighlightButtonGroup
-                          targetType="post"
-                          targetId={p.id}
-                          title={`Post de ${p.personas?.name ?? "Persona"}`}
-                          onToggle={handleHighlightToggle}
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+              {posts.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Você ainda não postou nada.
+                </div>
+              ) : (
+                posts.map((p) => (
+                  <PostPreviewCard
+                    key={p.id}
+                    p={p}
+                    onOpen={() => router.push(`/app/post/${p.id}`)}
+                  />
+                ))
+              )}
+            </div>
           )}
 
-          {/* CreateChooser (Post ou Wiki) */}
-          <CreateChooser open={createOpen} onOpenChange={setCreateOpen} />
+          {tab === "wikis" && (
+            <ProfileWikisGrid personaId={activePersona?.id ?? null} />
+          )}
+
+          {tab === "highlights" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Seus destaques</p>
+              <HighlightGrid
+                highlights={highlights}
+                loading={highlightsLoading}
+              />
+            </div>
+          )}
+
+          <CreateChooser
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            hasPersona={!!activePersona}
+          />
         </>
       )}
     </div>
