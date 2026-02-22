@@ -44,6 +44,15 @@ export function getWallpaperStyle(
     };
   }
 
+  if (wallpaper.kind === "image" && wallpaper.src) {
+    return {
+      backgroundImage: `url(${wallpaper.src})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+    };
+  }
+
   return null;
 }
 

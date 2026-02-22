@@ -13,6 +13,9 @@ import UserCardModal from "@/components/profile/UserCardModal";
 import { X } from "lucide-react";
 import { isRichHtmlEmpty } from "@/lib/editor/isRichHtmlEmpty";
 import WallpaperBackground from "@/components/ui/WallpaperBackground";
+import SubchatList from "@/components/subchats/SubchatList";
+import SubchatSidebar from "@/components/subchats/SubchatSidebar";
+import CreateSubchatDialog from "@/components/subchats/CreateSubchatDialog";
 
 type UiMessage = {
   id: string;
@@ -118,9 +121,11 @@ export default function ChatRoomPage() {
 
   const [chatTitle, setChatTitle] = useState("Chat");
   // Fix #2: usar wallpaper_slug (TEXT) em vez de wallpaper_id (UUID FK)
-  const [chatWallpaperSlug, setChatWallpaperSlug] = useState<string | null>(
-    null,
-  );
+  const [chatWallpaperSlug, setChatWallpaperSlug] = useState<string | null>(null);
+  const [chatParentId, setChatParentId] = useState<string | null>(null);
+  const [chatCreatedBy, setChatCreatedBy] = useState<string | null>(null);
+  const [showCreateSubchat, setShowCreateSubchat] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [hasReplyToColumn, setHasReplyToColumn] = useState(true);
   const [hasMore, setHasMore] = useState(true);
@@ -247,6 +252,7 @@ export default function ChatRoomPage() {
   async function markAsRead(validChatId: string) {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
+    setCurrentUserId(userData.user.id);
     // Atualiza last_read_at em chat_participants para este usuário neste chat
     await supabase
       .from("chat_participants")
@@ -261,7 +267,7 @@ export default function ChatRoomPage() {
       // Fix #2: busca wallpaper_slug (TEXT) em vez de wallpaper_id (UUID)
       let chatRes = await supabase
         .from("chats")
-        .select("title,wallpaper_slug")
+        .select("title,wallpaper_slug,parent_id,created_by")
         .eq("id", validChatId)
         .maybeSingle();
 
@@ -271,7 +277,7 @@ export default function ChatRoomPage() {
       ) {
         chatRes = await supabase
           .from("chats")
-          .select("title")
+          .select("title,parent_id,created_by")
           .eq("id", validChatId)
           .maybeSingle();
       }
@@ -280,6 +286,12 @@ export default function ChatRoomPage() {
       setChatWallpaperSlug(
         (chatRes.data as { wallpaper_slug?: string | null } | null)
           ?.wallpaper_slug ?? null,
+      );
+      setChatParentId(
+        (chatRes.data as { parent_id?: string | null } | null)?.parent_id ?? null,
+      );
+      setChatCreatedBy(
+        (chatRes.data as { created_by?: string | null } | null)?.created_by ?? null,
       );
 
       didInitialScrollRef.current = false;
@@ -666,6 +678,17 @@ export default function ChatRoomPage() {
       wallpaperSlug={chatWallpaperSlug}
       className="min-h-dvh w-full"
     >
+      {/* Diálogo de criação de subchat */}
+      {chatCreatedBy && (
+        <CreateSubchatDialog
+          open={showCreateSubchat}
+          onClose={() => setShowCreateSubchat(false)}
+          parentId={chatId}
+          parentTitle={chatTitle}
+          createdBy={chatCreatedBy}
+        />
+      )}
+
       {/* Fix #3: flex-col + h-dvh → o listRef com min-h-0 permite scroll real no mobile */}
       <div className="mx-auto flex h-dvh w-full max-w-[1200px] flex-col">
         <header className="shrink-0 border-b bg-background/90 backdrop-blur">
@@ -689,11 +712,30 @@ export default function ChatRoomPage() {
           </div>
         </header>
 
-        {/* Fix #3: min-h-0 é ESSENCIAL — sem ele o flex-child não respeita a altura do pai e overflow-y-auto não cria scroll */}
-        <div
-          ref={listRef}
-          className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
-        >
+        {/* Layout: sidebar (desktop) + área principal */}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          {/* Sidebar de navegação entre regiões/subchats */}
+          <SubchatSidebar
+            currentChatId={chatId}
+            parentId={chatParentId}
+            createdBy={chatCreatedBy}
+          />
+          {/* Área principal: mensagens + input */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {/* Fix #3: min-h-0 é ESSENCIAL — sem ele o flex-child não respeita a altura do pai e overflow-y-auto não cria scroll */}
+            <div
+              ref={listRef}
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8"
+            >
+              {/* Lista de subchats — aparece no topo do chat pai */}
+              {!chatParentId && (
+                <SubchatList
+                  parentId={chatId}
+                  createdBy={chatCreatedBy}
+                  currentUserId={currentUserId}
+                  onCreateSubchat={() => setShowCreateSubchat(true)}
+                />
+              )}
           {!chatId || !isUuid(chatId) ? (
             <p className="text-sm text-muted-foreground">Chat inválido.</p>
           ) : loading ? (
@@ -834,7 +876,7 @@ export default function ChatRoomPage() {
               })}
             </>
           )}
-        </div>
+          </div> {/* fim ref={listRef} */}
 
         <div className="shrink-0 border-t bg-background/90 backdrop-blur p-3 md:p-4">
           {typingUsers.length > 0 && (
@@ -916,7 +958,8 @@ export default function ChatRoomPage() {
               {sending ? "Enviando..." : "Enviar"}
             </Button>
           </div>
-        </div>
+        </div> {/* fim área principal flex-col */}
+        </div> {/* fim flex min-h-0 (sidebar + main) */}
       </div>
     </WallpaperBackground>
   );

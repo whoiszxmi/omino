@@ -14,9 +14,10 @@
 export type Wallpaper = {
   id: string;
   name: string;
-  kind: "css" | "svg";
+  kind: "css" | "svg" | "image";
   css?: string;
   svg?: string;
+  src?: string; // base64 data URI para kind="image"
   isDark: boolean;
   accent?:
     | "royal"
@@ -28,7 +29,7 @@ export type Wallpaper = {
     | "amber"
     | "teal";
   recommendedText?: "light" | "dark";
-  category?: "dark" | "light" | "pattern" | "nature";
+  category?: "dark" | "light" | "pattern" | "nature" | "scene";
 };
 
 // ─── ESCUROS ────────────────────────────────────────────────────────────────
@@ -306,18 +307,34 @@ const patternWallpapers: Wallpaper[] = [
   },
 ];
 
+// ─── CENAS (imagens base64 — zero banda) ─────────────────────────────────────
+
+import { SCENE_WALLPAPERS } from "./scene-wallpapers";
+
+const sceneWallpapers: Wallpaper[] = SCENE_WALLPAPERS.map((s) => ({
+  id: s.id,
+  name: s.name,
+  kind: "image" as const,
+  src: s.src,
+  isDark: s.isDark,
+  recommendedText: s.recommendedText,
+  category: "scene" as const,
+}));
+
 // ─── EXPORT ──────────────────────────────────────────────────────────────────
 
 export const WALLPAPERS: Wallpaper[] = [
   ...darkWallpapers,
   ...lightWallpapers,
   ...patternWallpapers,
+  ...sceneWallpapers,
 ];
 
 export const WALLPAPER_CATEGORIES = [
   { id: "dark", label: "Escuros" },
   { id: "light", label: "Claros" },
   { id: "pattern", label: "Padrões" },
+  { id: "scene", label: "Cenários" },
 ] as const;
 
 /**
