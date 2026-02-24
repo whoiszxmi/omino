@@ -108,14 +108,37 @@ export default function WikiEditPage() {
   const [showPreview, setShowPreview] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  const initialDraft = useMemo(
-    () => ({
-      title: wiki?.title ?? null,
-      contentHtml: wiki?.content_html ?? "",
-      coverUrl: wiki?.wallpaper_slug ?? wiki?.cover_url ?? null,
-    }),
-    [wiki?.content_html, wiki?.cover_url, wiki?.title, wiki?.wallpaper_slug],
-  );
+  // FIX: Use um ref para memorizar o initialDraft após o primeiro carregamento
+  // Isso previne que o useDraftAutosave redetecte rascunhos após mudanças no wiki
+  const initialDraftRef = useRef<{
+    title: string | null;
+    contentHtml: string;
+    coverUrl: string | null;
+  } | null>(null);
+
+  // FIX: Só cria o initialDraft uma vez após o wiki carregar
+  const initialDraft = useMemo(() => {
+    if (initialDraftRef.current) {
+      return initialDraftRef.current;
+    }
+
+    if (wiki) {
+      const draft = {
+        title: wiki?.title ?? null,
+        contentHtml: wiki?.content_html ?? "",
+        coverUrl: wiki?.wallpaper_slug ?? wiki?.cover_url ?? null,
+      };
+      initialDraftRef.current = draft;
+      return draft;
+    }
+
+    // Retorna valores vazios enquanto carrega
+    return {
+      title: null,
+      contentHtml: "",
+      coverUrl: null,
+    };
+  }, [wiki]);
 
   const drafts = useDraftAutosave({
     scope: "wiki",
@@ -123,7 +146,7 @@ export default function WikiEditPage() {
     personaId: activePersona?.id ?? null,
     initialValue: initialDraft,
     value: { title, contentHtml, coverUrl: wallpaperSlug ?? backgroundColor },
-    enabled: !!wiki,
+    enabled: !!wiki, // FIX: Só habilita após o wiki carregar
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);

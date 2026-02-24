@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { useActivePersona } from "@/lib/persona/useActivePersona";
@@ -61,20 +61,51 @@ export default function PostEditPage() {
     return !!title.trim() && !isRichHtmlEmpty(contentHtml);
   }, [contentHtml, title]);
 
+  // FIX: Use um ref para memorizar o initialDraft após o primeiro carregamento
+  // Isso previne que o useDraftAutosave redetecte rascunhos após mudanças no post
+  const initialDraftRef = useRef<{
+    title: string | null;
+    contentHtml: string;
+    coverUrl: string | null;
+  } | null>(null);
+
+  // FIX: Só cria o initialDraft uma vez após o post carregar
+  const initialDraft = useMemo(() => {
+    if (initialDraftRef.current) {
+      return initialDraftRef.current;
+    }
+
+    if (post) {
+      const parsed = parseDocContent(post.content ?? "");
+      const draft = {
+        title: parsed.title ? parsed.title : null,
+        contentHtml: parsed.bodyHtml ?? "",
+        coverUrl: post.wallpaper_slug ?? null,
+      };
+      initialDraftRef.current = draft;
+      return draft;
+    }
+
+    // Retorna valores vazios enquanto carrega
+    return {
+      title: null,
+      contentHtml: "",
+      coverUrl: null,
+    };
+  }, [post]);
+
   const drafts = useDraftAutosave({
     scope: "post",
     draftKey: `edit:${postId}`,
     personaId: activePersona?.id ?? null,
-    initialValue: {
-      title: null,
-      contentHtml: post?.content ?? "",
-      coverUrl: null,
-    },
+    initialValue: initialDraft,
     value: { title, contentHtml, coverUrl: wallpaperSlug ?? backgroundColor },
-    enabled: !!post,
+    enabled: !!post, // FIX: Só habilita após o post carregar
     onRestore: (draft) => {
       setTitle(draft.title ?? "");
       setContentHtml(draft.contentHtml);
+      const saved = draft.coverUrl ?? null;
+      if (saved && !saved.startsWith("#")) setWallpaperSlug(saved);
     },
   });
 
