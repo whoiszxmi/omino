@@ -24,15 +24,22 @@ const ALLOWED_TYPES = [
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("📍 1. Início do request");
+
     // 1. Pegar token do header Authorization
     const authHeader = request.headers.get("Authorization");
+    console.log(
+      "📍 2. Authorization header:",
+      authHeader ? "Existe" : "Não existe",
+    );
 
     if (!authHeader?.startsWith("Bearer ")) {
       console.log("❌ No Authorization header");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "No auth header" }, { status: 401 });
     }
 
     const token = authHeader.replace("Bearer ", "");
+    console.log("📍 3. Token extraído:", token.substring(0, 20) + "...");
 
     // 2. Criar cliente Supabase e validar token
     const supabase = createSupabaseClient(
@@ -40,23 +47,44 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     );
 
+    console.log("📍 4. Cliente Supabase criado");
+
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser(token);
 
+    console.log("📍 5. Resultado getUser:", {
+      hasUser: !!user,
+      userId: user?.id,
+      email: user?.email,
+      error: authError?.message,
+    });
+
     if (authError || !user) {
       console.log("❌ Invalid token:", authError?.message);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        {
+          error: "Invalid token",
+          details: authError?.message,
+        },
+        { status: 401 },
+      );
     }
 
-    console.log("✅ Authenticated as:", user.email);
+    console.log("✅ Token válido! User:", user.email);
 
     // 3. Obter dados do form
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const type = formData.get("type") as ImageType;
     const oldUrl = formData.get("oldUrl") as string | null;
+
+    console.log("📍 6. Dados do form:", {
+      hasFile: !!file,
+      type,
+      fileSize: file?.size,
+    });
 
     // 4. Validações básicas
     if (!file) {
@@ -83,6 +111,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log("📍 7. Arquivo validado, iniciando otimização...");
+
     // 7. Obter metadados
     const metadata = await getImageMetadata(buffer);
 
@@ -93,6 +123,8 @@ export async function POST(request: NextRequest) {
       format: "webp",
     });
 
+    console.log("📍 8. Imagem otimizada, iniciando upload para R2...");
+
     // 9. Gerar path e fazer upload
     const path = generateImagePath(user.id, type);
     const url = await uploadToR2({
@@ -101,12 +133,15 @@ export async function POST(request: NextRequest) {
       contentType: "image/webp",
     });
 
+    console.log("📍 9. Upload concluído! URL:", url);
+
     // 10. Deletar imagem antiga se existir
     if (oldUrl) {
       const oldPath = extractR2Path(oldUrl);
       if (oldPath) {
         try {
           await deleteFromR2(oldPath);
+          console.log("📍 10. Imagem antiga deletada");
         } catch (error) {
           console.error("Failed to delete old image:", error);
         }
@@ -114,6 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 11. Retornar sucesso
+    console.log("✅ Upload completo com sucesso!");
     return NextResponse.json({
       url,
       metadata: {
@@ -126,17 +162,26 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    console.error("💥 Upload error:", error);
+    return NextResponse.json(
+      {
+        error: "Upload failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
+    console.log("📍 DELETE: Início do request");
+
     // 1. Pegar token do header
     const authHeader = request.headers.get("Authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
+      console.log("❌ DELETE: No Authorization header");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -154,8 +199,11 @@ export async function DELETE(request: NextRequest) {
     } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
+      console.log("❌ DELETE: Invalid token");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    console.log("✅ DELETE: Token válido! User:", user.email);
 
     // 3. Obter URL da query
     const { searchParams } = new URL(request.url);
@@ -178,14 +226,16 @@ export async function DELETE(request: NextRequest) {
       !path.startsWith(`posts/${user.id}/`) &&
       !path.startsWith(`wikis/${user.id}/`)
     ) {
+      console.log("❌ DELETE: Path não pertence ao usuário");
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     await deleteFromR2(path);
+    console.log("✅ DELETE: Imagem deletada com sucesso");
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Delete error:", error);
+    console.error("💥 Delete error:", error);
     return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }
