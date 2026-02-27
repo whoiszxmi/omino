@@ -2,11 +2,12 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Upload, X, Loader2, Check } from "lucide-react";
+import { Upload, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Image from "next/image";
+import { supabase } from "@/lib/supabase/client"; // ✅ IMPORTANTE: Importar supabase
 
 interface ImageUploadProps {
   type: "avatar" | "banner" | "wallpaper" | "post" | "wiki";
@@ -81,6 +82,16 @@ export function ImageUpload({
     setProgress(0);
 
     try {
+      // ✅ NOVO: Pegar token de autenticação
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        throw new Error("Você precisa estar logado para fazer upload");
+      }
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("type", type);
@@ -93,8 +104,12 @@ export function ImageUpload({
         setProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
+      // ✅ NOVO: Enviar token no header Authorization
       const response = await fetch("/api/upload", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`, // ✅ Token aqui!
+        },
         body: formData,
       });
 
