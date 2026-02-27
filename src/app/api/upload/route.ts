@@ -1,5 +1,8 @@
+// app/api/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   uploadToR2,
   deleteFromR2,
@@ -22,68 +25,118 @@ const ALLOWED_TYPES = [
   "wiki",
 ] as const;
 
+/**
+ * ✅ Helper para criar cliente Supabase autenticado
+ * Next.js 15+ - cookies() é async!
+ */
+async function createAuthenticatedClient(): Promise<SupabaseClient | null> {
+  const cookieStore = await cookies(); // ← AWAIT aqui!
+
+  // Tentar diferentes nomes de cookies
+  const cookieNames = [
+    "sb-access-token",
+    "sb-localhost-auth-token",
+    "supabase-auth-token",
+  ];
+
+  let accessToken: string | undefined;
+
+  // Procurar nos cookies específicos
+  for (const name of cookieNames) {
+    const cookie = cookieStore.get(name);
+    if (cookie?.value) {
+      accessToken = cookie.value;
+      console.log(`✅ Token encontrado em: ${name}`);
+      break;
+    }
+  }
+
+  // Se não encontrou, procurar em TODOS os cookies
+  if (!accessToken) {
+    const allCookies = cookieStore.getAll();
+    console.log("📍 Procurando em todos os cookies:", allCookies.length);
+
+    for (const cookie of allCookies) {
+      if (cookie.name.includes("sb-") || cookie.name.includes("supabase")) {
+        console.log(`🔍 Cookie potencial: ${cookie.name}`);
+        accessToken = cookie.value;
+        break;
+      }
+    }
+  }
+
+  if (!accessToken) {
+    console.log("❌ Nenhum token de auth encontrado");
+    return null;
+  }
+
+  // Criar cliente com token
+  const client = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    },
+  );
+
+  return client;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    console.log("📍 1. Início do request");
+    console.log("📍 1. POST /api/upload - Iniciando...");
 
-    // 1. Pegar token do header Authorization
-    const authHeader = request.headers.get("Authorization");
-    console.log(
-      "📍 2. Authorization header:",
-      authHeader ? "Existe" : "Não existe",
-    );
+    // 1. Criar cliente autenticado
+    const supabase = await createAuthenticatedClient(); // ← AWAIT aqui!
 
-    if (!authHeader?.startsWith("Bearer ")) {
-      console.log("❌ No Authorization header");
-      return NextResponse.json({ error: "No auth header" }, { status: 401 });
+    if (!supabase) {
+      console.log("❌ Não foi possível criar cliente autenticado");
+      return NextResponse.json(
+        { error: "No authentication found. Please login again." },
+        { status: 401 },
+      );
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    console.log("📍 3. Token extraído:", token.substring(0, 20) + "...");
+    console.log("📍 2. Cliente criado, validando usuário...");
 
-    // 2. Criar cliente Supabase e validar token
-    const supabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    // 2. Validar usuário
+    const { data, error: authError } = await supabase.auth.getUser();
 
-    console.log("📍 4. Cliente Supabase criado");
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(token);
-
-    console.log("📍 5. Resultado getUser:", {
-      hasUser: !!user,
-      userId: user?.id,
-      email: user?.email,
-      error: authError?.message,
-    });
-
-    if (authError || !user) {
-      console.log("❌ Invalid token:", authError?.message);
+    if (authError || !data?.user) {
+      console.log("❌ Erro de autenticação:", authError?.message);
       return NextResponse.json(
         {
-          error: "Invalid token",
+          error: "Authentication failed",
           details: authError?.message,
         },
         { status: 401 },
       );
     }
 
-    console.log("✅ Token válido! User:", user.email);
+    const user = data.user;
+    console.log("✅ Usuário autenticado:", user.email);
 
     // 3. Obter dados do form
+    console.log("📍 3. Lendo FormData...");
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const type = formData.get("type") as ImageType;
     const oldUrl = formData.get("oldUrl") as string | null;
 
-    console.log("📍 6. Dados do form:", {
+    console.log("📍 4. Dados recebidos:", {
       hasFile: !!file,
-      type,
+      fileName: file?.name,
       fileSize: file?.size,
+      type,
     });
 
     // 4. Validações básicas
@@ -101,6 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Converter para buffer e validar imagem
+    console.log("📍 5. Validando imagem...");
     const buffer = Buffer.from(await file.arrayBuffer());
     const isValid = await validateImage(buffer);
 
@@ -111,21 +165,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("📍 7. Arquivo validado, iniciando otimização...");
-
     // 7. Obter metadados
+    console.log("📍 6. Obtendo metadados...");
     const metadata = await getImageMetadata(buffer);
 
     // 8. Otimizar imagem
+    console.log("📍 7. Otimizando imagem...");
     const optimized = await optimizeImage(buffer, {
       type,
       quality: 85,
       format: "webp",
     });
 
-    console.log("📍 8. Imagem otimizada, iniciando upload para R2...");
+    console.log("✅ Otimização concluída:", {
+      originalSize: file.size,
+      optimizedSize: optimized.length,
+      savings: Math.round((1 - optimized.length / file.size) * 100) + "%",
+    });
 
     // 9. Gerar path e fazer upload
+    console.log("📍 8. Fazendo upload para R2...");
     const path = generateImagePath(user.id, type);
     const url = await uploadToR2({
       file: optimized,
@@ -133,17 +192,18 @@ export async function POST(request: NextRequest) {
       contentType: "image/webp",
     });
 
-    console.log("📍 9. Upload concluído! URL:", url);
+    console.log("✅ Upload concluído! URL:", url);
 
     // 10. Deletar imagem antiga se existir
     if (oldUrl) {
+      console.log("📍 9. Deletando imagem antiga...");
       const oldPath = extractR2Path(oldUrl);
       if (oldPath) {
         try {
           await deleteFromR2(oldPath);
-          console.log("📍 10. Imagem antiga deletada");
+          console.log("✅ Imagem antiga deletada");
         } catch (error) {
-          console.error("Failed to delete old image:", error);
+          console.error("⚠️ Falha ao deletar imagem antiga:", error);
         }
       }
     }
@@ -175,37 +235,23 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    console.log("📍 DELETE: Início do request");
+    console.log("📍 DELETE /api/upload - Iniciando...");
 
-    // 1. Pegar token do header
-    const authHeader = request.headers.get("Authorization");
+    const supabase = await createAuthenticatedClient(); // ← AWAIT aqui!
 
-    if (!authHeader?.startsWith("Bearer ")) {
-      console.log("❌ DELETE: No Authorization header");
+    if (!supabase) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const token = authHeader.replace("Bearer ", "");
+    const { data, error: authError } = await supabase.auth.getUser();
 
-    // 2. Validar token
-    const supabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      console.log("❌ DELETE: Invalid token");
+    if (authError || !data?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    console.log("✅ DELETE: Token válido! User:", user.email);
+    const user = data.user;
+    console.log("✅ User autenticado:", user.email);
 
-    // 3. Obter URL da query
     const { searchParams } = new URL(request.url);
     const url = searchParams.get("url");
 
@@ -218,20 +264,24 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
     }
 
-    // 4. Verificar se o path pertence ao usuário
-    if (
-      !path.startsWith(`avatars/${user.id}/`) &&
-      !path.startsWith(`banners/${user.id}/`) &&
-      !path.startsWith(`wallpapers/${user.id}/`) &&
-      !path.startsWith(`posts/${user.id}/`) &&
-      !path.startsWith(`wikis/${user.id}/`)
-    ) {
-      console.log("❌ DELETE: Path não pertence ao usuário");
+    // Verificar se o path pertence ao usuário
+    const userPaths = [
+      `avatars/${user.id}/`,
+      `banners/${user.id}/`,
+      `wallpapers/${user.id}/`,
+      `posts/${user.id}/`,
+      `wikis/${user.id}/`,
+    ];
+
+    const belongsToUser = userPaths.some((prefix) => path.startsWith(prefix));
+
+    if (!belongsToUser) {
+      console.log("❌ Path não pertence ao usuário");
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     await deleteFromR2(path);
-    console.log("✅ DELETE: Imagem deletada com sucesso");
+    console.log("✅ Imagem deletada com sucesso");
 
     return NextResponse.json({ success: true });
   } catch (error) {
