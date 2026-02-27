@@ -26,7 +26,7 @@ const ALLOWED_TYPES = [
 export async function POST(request: NextRequest) {
   try {
     // 1. Autenticação
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 // Deletar imagem
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
