@@ -5,7 +5,7 @@ import { useState, useRef } from "react";
 import { Upload, X, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "@/lib/toast";
+import { toast } from "sonner";
 import Image from "next/image";
 
 interface ImageUploadProps {
