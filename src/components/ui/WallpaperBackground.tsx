@@ -1,6 +1,8 @@
 /**
  * WallpaperBackground.tsx
  *
+ * ✅ ATUALIZADO - Agora suporta wallpapers customizados do R2
+ *
  * Modos:
  *   "page"   — fundo absoluto contido dentro do wrapper (não vaza)
  *   "inline" — background direto no div (thumbnails/picker)
@@ -14,11 +16,46 @@ function toSvgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/**
+ * ✅ NOVA FUNÇÃO - Detecta se é wallpaper customizado (URL do R2)
+ */
+function isCustomWallpaper(slug?: string | null): boolean {
+  if (!slug) return false;
+  return (
+    slug.startsWith("custom:") ||
+    slug.startsWith("http://") ||
+    slug.startsWith("https://")
+  );
+}
+
+/**
+ * ✅ NOVA FUNÇÃO - Extrai URL de wallpaper customizado
+ */
+function getCustomWallpaperUrl(slug: string): string {
+  if (slug.startsWith("custom:")) {
+    return slug.replace("custom:", "");
+  }
+  return slug; // Já é uma URL
+}
+
 export function getWallpaperStyle(
   wallpaperSlug?: string | null,
 ): CSSProperties | null {
+  // ✅ NOVO - Suporte a wallpapers customizados
+  if (isCustomWallpaper(wallpaperSlug)) {
+    const url = getCustomWallpaperUrl(wallpaperSlug!);
+    return {
+      backgroundImage: `url(${url})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+    };
+  }
+
+  // Código original - wallpapers do catálogo
   const wallpaper = getWallpaperBySlug(wallpaperSlug);
   if (!wallpaper) return null;
+
   if (wallpaper.kind === "css" && wallpaper.css) {
     return {
       backgroundImage: wallpaper.css,
@@ -100,3 +137,9 @@ export default function WallpaperBackground({
     </div>
   );
 }
+
+/**
+ * ✅ NOVA FUNÇÃO HELPER - Verificar se wallpaper é customizado
+ * Útil para mostrar botão "Remover" apenas em customizados
+ */
+export { isCustomWallpaper, getCustomWallpaperUrl };

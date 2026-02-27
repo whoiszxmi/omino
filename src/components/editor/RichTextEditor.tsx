@@ -1,3 +1,4 @@
+// components/editor/RichTextEditor.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";
@@ -43,8 +44,8 @@ type Props = {
   valueHtml: string;
   onChangeHtml: (html: string) => void;
   placeholder?: string;
-  bucket?: string;
-  folder?: string;
+  bucket?: string; // Mantido para compatibilidade, mas não usado
+  folder?: string; // Mantido para compatibilidade, mas não usado
   compact?: boolean;
   imageInsertMode?: "inline" | "tag" | "both";
   enableTables?: boolean;
@@ -98,176 +99,105 @@ function getEditorCss() {
     font-size: 0.875em;
     font-family: monospace;
   }
-  .amino-editor pre {
-    background: hsl(var(--muted));
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    overflow-x: auto;
-    margin: 0.5rem 0;
-  }
-  .amino-editor pre code { background: none; padding: 0; }
-  .amino-editor .tableWrapper {
-    overflow-x: auto;
-    overflow-y: hidden;
-    max-width: 100%;
-    -webkit-overflow-scrolling: touch;
-  }
   .amino-editor table {
-    width: 100%;
-    max-width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    margin: 10px 0;
-    border: 1px solid hsl(var(--border));
-    border-radius: 12px;
+    width: 100%;
+    margin: 1rem 0;
     overflow: hidden;
-    background: hsl(var(--background));
-  }
-  .amino-editor .tableWrapper table { min-width: 520px; }
-  .amino-editor th, .amino-editor td {
     border: 1px solid hsl(var(--border));
-    padding: 8px 10px;
+    border-radius: 8px;
+  }
+  .amino-editor table td,
+  .amino-editor table th {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
     vertical-align: top;
-    font-size: 13px;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    box-sizing: border-box;
     position: relative;
   }
-  .amino-editor th { background: hsl(var(--muted)); font-weight: 700; }
-  .amino-editor td.selectedCell::after,
-  .amino-editor th.selectedCell::after {
-    content: "";
+  .amino-editor table th {
+    font-weight: 600;
+    background: hsl(var(--muted));
+  }
+  .amino-editor table tr:hover {
+    background: hsl(var(--muted)/0.5);
+  }
+  .amino-editor table .selectedCell {
+    background: hsl(var(--primary)/0.1);
+  }
+  .amino-editor table .column-resize-handle {
     position: absolute;
-    inset: 0;
-    background: rgba(255, 255, 255, 0.08);
+    right: -2px;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background-color: hsl(var(--primary));
     pointer-events: none;
   }
-  .amino-editor .is-empty::before {
+  .amino-editor .ProseMirror-focused {
+    outline: none;
+  }
+  .amino-editor .ProseMirror {
+    min-height: 120px;
+    padding: 0.75rem;
+  }
+  .amino-editor .is-editor-empty:before {
+    color: hsl(var(--muted-foreground));
     content: attr(data-placeholder);
     float: left;
-    color: hsl(var(--muted-foreground));
-    pointer-events: none;
     height: 0;
+    pointer-events: none;
   }
-  `;
+`;
 }
 
 type ActiveState = {
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  bulletList: boolean;
-  orderedList: boolean;
-  link: boolean;
-  h1: boolean;
-  h2: boolean;
-  h3: boolean;
-  blockquote: boolean;
-  inTable: boolean;
-  canBold: boolean;
-  canItalic: boolean;
-  canUnderline: boolean;
-  canBullet: boolean;
-  canInsertTable: boolean;
-  canAddRow: boolean;
-  canAddCol: boolean;
-  canDeleteTable: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  link?: boolean;
+  bullet?: boolean;
+  ordered?: boolean;
+  h1?: boolean;
+  h2?: boolean;
+  h3?: boolean;
+  blockquote?: boolean;
+  hr?: boolean;
+  table?: boolean;
 };
 
-const EMPTY_ACTIVE: ActiveState = {
-  bold: false,
-  italic: false,
-  underline: false,
-  bulletList: false,
-  orderedList: false,
-  link: false,
-  h1: false,
-  h2: false,
-  h3: false,
-  blockquote: false,
-  inTable: false,
-  canBold: false,
-  canItalic: false,
-  canUnderline: false,
-  canBullet: false,
-  canInsertTable: false,
-  canAddRow: false,
-  canAddCol: false,
-  canDeleteTable: false,
-};
-
-function ToolbarBtn({
-  onClick,
-  active,
-  disabled,
-  title,
-  children,
-}: {
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex h-7 w-7 items-center justify-center rounded-lg text-sm transition",
-        "hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40",
-        active
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ToolbarDivider() {
-  return <div className="mx-0.5 h-5 w-px bg-border" />;
-}
+const EMPTY_ACTIVE: ActiveState = {};
 
 export default function RichTextEditor({
   valueHtml,
   onChangeHtml,
   placeholder = "Escreva algo...",
-  bucket = "media",
-  folder = "posts",
+  bucket = "media", // Não usado, mantido para compatibilidade
+  folder = "images", // Não usado, mantido para compatibilidade
   compact = false,
-  imageInsertMode = "both",
+  imageInsertMode = "inline",
   enableTables = false,
 }: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickImageRef = useRef<HTMLInputElement>(null);
   const imageModeRef = useRef<"inline" | "tag">("inline");
-  const editorCss = useMemo(() => getEditorCss(), []);
-
-  function toggleLink(ed: Editor | null) {
-    if (!ed) return;
-    if (ed.isActive("link")) {
-      ed.chain().focus().unsetLink().run();
-      return;
-    }
-    const prev = ed.getAttributes("link")?.href as string | undefined;
-    const url = window.prompt("Cole o link:", prev ?? "https://");
-    if (!url?.trim()) return;
-    ed.chain().focus().setLink({ href: url.trim() }).run();
-  }
 
   const editor = useEditor({
-    immediatelyRender: false,
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        horizontalRule: true,
+        blockquote: true,
+      }),
       Underline,
-      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: "amino-link" },
+      }),
+      Placeholder.configure({ placeholder }),
       Image.configure({
-        inline: false,
-        allowBase64: false,
-        HTMLAttributes: { class: "max-w-full h-auto rounded-xl border" },
+        inline: true,
+        HTMLAttributes: { class: "amino-img" },
       }),
       ...(enableTables
         ? [
@@ -277,78 +207,44 @@ export default function RichTextEditor({
             TableCell,
           ]
         : []),
-      Placeholder.configure({ placeholder }),
     ],
-    content: valueHtml || "",
-    onUpdate: ({ editor }) => onChangeHtml(editor.getHTML()),
+    content: valueHtml,
+    onUpdate: ({ editor }) => {
+      onChangeHtml(editor.getHTML());
+    },
     editorProps: {
-      attributes: {
-        class: cn(
-          "amino-editor w-full px-4 py-3 focus:outline-none",
-          "text-sm leading-relaxed",
-          compact ? "min-h-[96px]" : "min-h-[220px]",
-        ),
-      },
-      handleDOMEvents: {
-        keydown: (_view: unknown, event: Event) => {
-          const e = event as KeyboardEvent;
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-            e.preventDefault();
-            toggleLink(editor);
-            return true;
-          }
-          return false;
-        },
-      },
+      attributes: { class: "amino-editor focus:outline-none" },
     },
   });
 
-  const active = useEditorState<ActiveState>({
+  const { isActive } = useEditorState({
     editor,
     selector: (ctx) => {
-      const ed = ctx?.editor;
-      if (!ed) return EMPTY_ACTIVE;
-      const inTable = ed.isActive("table");
+      const e = ctx.editor;
+      if (!e) return EMPTY_ACTIVE;
       return {
-        bold: ed.isActive("bold"),
-        italic: ed.isActive("italic"),
-        underline: ed.isActive("underline"),
-        bulletList: ed.isActive("bulletList"),
-        orderedList: ed.isActive("orderedList"),
-        link: ed.isActive("link"),
-        h1: ed.isActive("heading", { level: 1 }),
-        h2: ed.isActive("heading", { level: 2 }),
-        h3: ed.isActive("heading", { level: 3 }),
-        blockquote: ed.isActive("blockquote"),
-        inTable,
-        canBold: ed.can().chain().focus().toggleBold().run(),
-        canItalic: ed.can().chain().focus().toggleItalic().run(),
-        canUnderline: ed.can().chain().focus().toggleUnderline().run(),
-        canBullet: ed.can().chain().focus().toggleBulletList().run(),
-        canInsertTable:
-          !!enableTables &&
-          ed
-            .can()
-            .chain()
-            .focus()
-            .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
-            .run(),
-        canAddRow:
-          !!enableTables &&
-          inTable &&
-          ed.can().chain().focus().addRowAfter().run(),
-        canAddCol:
-          !!enableTables &&
-          inTable &&
-          ed.can().chain().focus().addColumnAfter().run(),
-        canDeleteTable:
-          !!enableTables &&
-          inTable &&
-          ed.can().chain().focus().deleteTable().run(),
+        bold: e.isActive("bold"),
+        italic: e.isActive("italic"),
+        underline: e.isActive("underline"),
+        link: e.isActive("link"),
+        bullet: e.isActive("bulletList"),
+        ordered: e.isActive("orderedList"),
+        h1: e.isActive("heading", { level: 1 }),
+        h2: e.isActive("heading", { level: 2 }),
+        h3: e.isActive("heading", { level: 3 }),
+        blockquote: e.isActive("blockquote"),
+        hr: e.isActive("horizontalRule"),
+        table: e.isActive("table"),
       };
     },
   });
 
+  const active: ActiveState = useMemo(() => {
+    if (!editor) return EMPTY_ACTIVE;
+    return isActive ?? EMPTY_ACTIVE;
+  }, [editor, isActive]);
+
+  // Manter o editor sincronizado com valor externo
   useEffect(() => {
     if (!editor) return;
     if ((valueHtml || "") !== editor.getHTML()) {
@@ -356,31 +252,49 @@ export default function RichTextEditor({
     }
   }, [valueHtml, editor]);
 
-  async function uploadImage(file: File) {
+  /**
+   * ✅ NOVA FUNÇÃO - Upload usando R2 via API route
+   */
+  async function uploadImage(file: File): Promise<string> {
+    // Validar autenticação
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) throw new Error("Não logado.");
-    if (file.size > 2_500_000)
-      throw new Error("Imagem muito grande. Use até ~2.5MB.");
 
-    const ext = file.name.split(".").pop() || "png";
-    const path = `${folder}/${userData.user.id}/${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await supabase.storage
-      .from(bucket)
-      .upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || "image/*",
-      });
-    if (upErr) throw upErr;
-    return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+    // Validar tamanho (5MB para imagens inline)
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error("Imagem muito grande. Máximo: 5MB");
+    }
+
+    // Preparar FormData
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("type", "post"); // Tipo para imagens inline em posts/wikis
+
+    // Upload via API route (usa R2)
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Erro ao fazer upload");
+    }
+
+    const data = await response.json();
+    return data.url; // URL do R2
   }
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !editor) return;
+
     try {
+      // Upload via R2
       const url = await uploadImage(file);
+
+      // Inserir no editor
       if (imageModeRef.current === "tag") {
         editor.chain().focus().insertContent(`[img:${url}]`).run();
       } else {
@@ -391,6 +305,8 @@ export default function RichTextEditor({
         "Upload falhou:",
         err instanceof Error ? err.message : String(err),
       );
+      // Você pode adicionar um toast aqui se quiser
+      // toast.error(err instanceof Error ? err.message : "Erro ao fazer upload");
     }
   }
 
@@ -398,192 +314,263 @@ export default function RichTextEditor({
   const a: ActiveState = active ?? EMPTY_ACTIVE;
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-background">
-      <style jsx global>
-        {editorCss}
-      </style>
+    <div className="relative rounded-xl border bg-background">
+      <style dangerouslySetInnerHTML={{ __html: getEditorCss() }} />
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 border-b bg-muted/30 px-2 py-1.5">
-        {/* Formatação de texto */}
-        <ToolbarBtn
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-0.5 border-b p-2",
+          compact && "gap-1 p-1.5",
+        )}
+      >
+        {/* Text formatting */}
+        <button
+          type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          active={a.bold}
-          disabled={!a.canBold}
-          title="Negrito (Ctrl+B)"
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.bold && "bg-muted",
+          )}
+          title="Bold (Ctrl+B)"
         >
-          <Bold className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          active={a.italic}
-          disabled={!a.canItalic}
-          title="Itálico (Ctrl+I)"
-        >
-          <Italic className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleUnderline().run()}
-          active={a.underline}
-          disabled={!a.canUnderline}
-          title="Sublinhar (Ctrl+U)"
-        >
-          <UnderlineIcon className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+          <Bold className="h-4 w-4" />
+        </button>
 
-        <ToolbarDivider />
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.italic && "bg-muted",
+          )}
+          title="Italic (Ctrl+I)"
+        >
+          <Italic className="h-4 w-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.underline && "bg-muted",
+          )}
+          title="Underline (Ctrl+U)"
+        >
+          <UnderlineIcon className="h-4 w-4" />
+        </button>
+
+        <div className="mx-1 h-5 w-px bg-border" />
 
         {/* Headings */}
-        <ToolbarBtn
+        <button
+          type="button"
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 1 }).run()
           }
-          active={a.h1}
-          title="Título H1"
+          className={cn(
+            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
+            a.h1 && "bg-muted",
+          )}
+          title="Heading 1"
         >
-          <Heading1 className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
+          H1
+        </button>
+
+        <button
+          type="button"
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 2 }).run()
           }
-          active={a.h2}
-          title="Título H2"
+          className={cn(
+            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
+            a.h2 && "bg-muted",
+          )}
+          title="Heading 2"
         >
-          <Heading2 className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
+          H2
+        </button>
+
+        <button
+          type="button"
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 3 }).run()
           }
-          active={a.h3}
-          title="Título H3"
+          className={cn(
+            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
+            a.h3 && "bg-muted",
+          )}
+          title="Heading 3"
         >
-          <Heading3 className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+          H3
+        </button>
 
-        <ToolbarDivider />
+        <div className="mx-1 h-5 w-px bg-border" />
 
-        {/* Listas e blocos */}
-        <ToolbarBtn
+        {/* Lists */}
+        <button
+          type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          active={a.bulletList}
-          disabled={!a.canBullet}
-          title="Lista com marcadores"
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.bullet && "bg-muted",
+          )}
+          title="Bullet List"
         >
-          <List className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          active={a.orderedList}
-          title="Lista numerada"
-        >
-          <ListOrdered className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          active={a.blockquote}
-          title="Citação"
-        >
-          <Quote className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
-          title="Linha horizontal"
-        >
-          <Minus className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+          <List className="h-4 w-4" />
+        </button>
 
-        <ToolbarDivider />
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.ordered && "bg-muted",
+          )}
+          title="Ordered List"
+        >
+          <ListOrdered className="h-4 w-4" />
+        </button>
+
+        <div className="mx-1 h-5 w-px bg-border" />
 
         {/* Link */}
-        <ToolbarBtn
-          onClick={() => toggleLink(editor)}
-          active={a.link}
-          title="Link (Ctrl+K)"
+        <button
+          type="button"
+          onClick={() => {
+            const url = prompt("URL:");
+            if (url) {
+              editor.chain().focus().setLink({ href: url }).run();
+            }
+          }}
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.link && "bg-muted",
+          )}
+          title="Add Link"
         >
-          <Link2 className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+          <Link2 className="h-4 w-4" />
+        </button>
 
-        {/* Imagens */}
-        {(imageInsertMode === "inline" || imageInsertMode === "both") && (
-          <ToolbarBtn
+        {/* Image (inline) */}
+        {imageInsertMode !== "tag" && (
+          <button
+            type="button"
             onClick={() => {
               imageModeRef.current = "inline";
-              fileInputRef.current?.click();
+              pickImageRef.current?.click();
             }}
-            title="Inserir imagem"
+            className="rounded p-1.5 transition hover:bg-muted"
+            title="Insert Image"
           >
-            <ImageIcon className="h-3.5 w-3.5" />
-          </ToolbarBtn>
-        )}
-        {(imageInsertMode === "tag" || imageInsertMode === "both") && (
-          <ToolbarBtn
-            onClick={() => {
-              imageModeRef.current = "tag";
-              fileInputRef.current?.click();
-            }}
-            title="Inserir tag de imagem [img:URL]"
-          >
-            <Tag className="h-3.5 w-3.5" />
-          </ToolbarBtn>
+            <ImageIcon className="h-4 w-4" />
+          </button>
         )}
 
-        {/* Tabela */}
+        {/* Image (tag) */}
+        {imageInsertMode !== "inline" && (
+          <button
+            type="button"
+            onClick={() => {
+              imageModeRef.current = "tag";
+              pickImageRef.current?.click();
+            }}
+            className="rounded p-1.5 transition hover:bg-muted"
+            title="Insert Image Tag [img:...]"
+          >
+            <Tag className="h-4 w-4" />
+          </button>
+        )}
+
+        <div className="mx-1 h-5 w-px bg-border" />
+
+        {/* Blockquote */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          className={cn(
+            "rounded p-1.5 transition hover:bg-muted",
+            a.blockquote && "bg-muted",
+          )}
+          title="Blockquote"
+        >
+          <Quote className="h-4 w-4" />
+        </button>
+
+        {/* Horizontal Rule */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          className="rounded p-1.5 transition hover:bg-muted"
+          title="Horizontal Rule"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+
+        {/* Tables (if enabled) */}
         {enableTables && (
           <>
-            <ToolbarDivider />
-            <ToolbarBtn
+            <div className="mx-1 h-5 w-px bg-border" />
+
+            <button
+              type="button"
               onClick={() =>
                 editor
                   .chain()
                   .focus()
-                  .insertTable({ rows: 2, cols: 2, withHeaderRow: true })
+                  .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
                   .run()
               }
-              disabled={!a.canInsertTable}
-              title="Inserir tabela"
+              className={cn(
+                "rounded p-1.5 transition hover:bg-muted",
+                a.table && "bg-muted",
+              )}
+              title="Insert Table"
             >
-              <Table2 className="h-3.5 w-3.5" />
-            </ToolbarBtn>
-            {a.inTable && (
+              <Table2 className="h-4 w-4" />
+            </button>
+
+            {a.table && (
               <>
-                <ToolbarBtn
-                  onClick={() => editor.chain().focus().addRowAfter().run()}
-                  disabled={!a.canAddRow}
-                  title="Adicionar linha"
-                >
-                  <Rows className="h-3.5 w-3.5" />
-                </ToolbarBtn>
-                <ToolbarBtn
+                <button
+                  type="button"
                   onClick={() => editor.chain().focus().addColumnAfter().run()}
-                  disabled={!a.canAddCol}
-                  title="Adicionar coluna"
+                  className="rounded p-1.5 transition hover:bg-muted"
+                  title="Add Column"
                 >
-                  <Columns className="h-3.5 w-3.5" />
-                </ToolbarBtn>
-                <ToolbarBtn
+                  <Columns className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => editor.chain().focus().addRowAfter().run()}
+                  className="rounded p-1.5 transition hover:bg-muted"
+                  title="Add Row"
+                >
+                  <Rows className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => editor.chain().focus().deleteTable().run()}
-                  disabled={!a.canDeleteTable}
-                  title="Remover tabela"
+                  className="rounded p-1.5 text-destructive transition hover:bg-destructive/10"
+                  title="Delete Table"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </ToolbarBtn>
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </>
             )}
           </>
         )}
-
-        <div className="ml-auto hidden text-[10px] text-muted-foreground/60 md:block">
-          Ctrl+K = link
-        </div>
       </div>
 
       {/* Editor */}
       <EditorContent editor={editor} />
 
+      {/* Hidden file input */}
       <input
-        ref={fileInputRef}
+        ref={pickImageRef}
         type="file"
         accept="image/*"
         className="hidden"
