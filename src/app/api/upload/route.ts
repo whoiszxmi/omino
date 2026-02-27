@@ -27,48 +27,138 @@ const ALLOWED_TYPES = [
 
 /**
  * ✅ Helper para criar cliente Supabase autenticado
- * Next.js 15+ - cookies() é async!
  */
 async function createAuthenticatedClient(): Promise<SupabaseClient | null> {
-  const cookieStore = await cookies(); // ← AWAIT aqui!
+  const cookieStore = await cookies();
+  const allCookies = cookieStore.getAll();
 
-  // Tentar diferentes nomes de cookies
-  const cookieNames = [
+  // 🔍 DEBUG: Mostrar TODOS os cookies
+  console.log("═══════════════════════════════════════");
+  console.log("🔍 DEBUG: TODOS OS COOKIES DISPONÍVEIS:");
+  console.log("═══════════════════════════════════════");
+
+  if (allCookies.length === 0) {
+    console.log("❌ NENHUM COOKIE ENCONTRADO!");
+    console.log("   Isso significa que o browser não está enviando cookies.");
+    console.log("   Possíveis causas:");
+    console.log("   1. Usuário não está logado");
+    console.log("   2. Cookies foram bloqueados");
+    console.log("   3. credentials: 'include' não está no fetch");
+    return null;
+  }
+
+  allCookies.forEach((cookie, index) => {
+    const valuePreview =
+      cookie.value.length > 50
+        ? cookie.value.substring(0, 50) + "..."
+        : cookie.value;
+    console.log(`${index + 1}. ${cookie.name}`);
+    console.log(`   Valor: ${valuePreview}`);
+    console.log(`   Tamanho: ${cookie.value.length} chars`);
+  });
+
+  console.log("═══════════════════════════════════════");
+
+  // Procurar token de acesso em QUALQUER cookie
+  let accessToken: string | undefined;
+  let foundInCookie: string | undefined;
+
+  // 1. Tentar nomes comuns do Supabase
+  const commonNames = [
     "sb-access-token",
+    "sb-refresh-token",
     "sb-localhost-auth-token",
     "supabase-auth-token",
   ];
 
-  let accessToken: string | undefined;
-
-  // Procurar nos cookies específicos
-  for (const name of cookieNames) {
+  for (const name of commonNames) {
     const cookie = cookieStore.get(name);
     if (cookie?.value) {
       accessToken = cookie.value;
-      console.log(`✅ Token encontrado em: ${name}`);
+      foundInCookie = name;
+      console.log(`✅ Token encontrado em cookie comum: ${name}`);
       break;
     }
   }
 
-  // Se não encontrou, procurar em TODOS os cookies
+  // 2. Se não encontrou, procurar em TODOS os cookies
   if (!accessToken) {
-    const allCookies = cookieStore.getAll();
-    console.log("📍 Procurando em todos os cookies:", allCookies.length);
+    console.log("⚠️ Não encontrou em nomes comuns, procurando em TODOS...");
 
     for (const cookie of allCookies) {
-      if (cookie.name.includes("sb-") || cookie.name.includes("supabase")) {
-        console.log(`🔍 Cookie potencial: ${cookie.name}`);
-        accessToken = cookie.value;
-        break;
+      const name = cookie.name.toLowerCase();
+
+      // Verificar se é um cookie do Supabase
+      if (
+        name.includes("sb-") ||
+        name.includes("supabase") ||
+        name.includes("auth-token") ||
+        name.includes("access") ||
+        name.includes("session")
+      ) {
+        // Verificar se parece com um JWT (começa com eyJ)
+        if (cookie.value.startsWith("eyJ")) {
+          accessToken = cookie.value;
+          foundInCookie = cookie.name;
+          console.log(`✅ Token JWT encontrado em: ${cookie.name}`);
+          break;
+        }
+
+        // Se o cookie contém um objeto JSON com access_token
+        try {
+          const parsed = JSON.parse(cookie.value);
+          if (parsed.access_token) {
+            accessToken = parsed.access_token;
+            foundInCookie = cookie.name;
+            console.log(
+              `✅ Token encontrado dentro de JSON em: ${cookie.name}`,
+            );
+            break;
+          }
+        } catch {
+          // Não é JSON, continuar
+        }
       }
     }
   }
 
+  // 3. Se AINDA não encontrou, listar candidatos
   if (!accessToken) {
-    console.log("❌ Nenhum token de auth encontrado");
+    console.log("❌ NENHUM TOKEN ENCONTRADO!");
+    console.log("");
+    console.log("📋 Cookies que PODEM conter auth (analise manualmente):");
+
+    allCookies.forEach((cookie) => {
+      if (
+        cookie.name.includes("sb") ||
+        cookie.name.includes("supabase") ||
+        cookie.name.includes("auth") ||
+        cookie.name.includes("token") ||
+        cookie.name.includes("session") ||
+        cookie.value.startsWith("eyJ") ||
+        cookie.value.length > 100
+      ) {
+        console.log(`   → ${cookie.name} (${cookie.value.length} chars)`);
+      }
+    });
+
+    console.log("");
+    console.log("💡 AÇÕES:");
+    console.log("   1. Verifique se você está LOGADO no app");
+    console.log("   2. Faça logout e login novamente");
+    console.log("   3. Limpe cookies do browser (Ctrl+Shift+Del)");
+    console.log(
+      "   4. Verifique se ImageUpload.tsx tem credentials: 'include'",
+    );
+    console.log("═══════════════════════════════════════");
+
     return null;
   }
+
+  console.log(`🎯 Usando token de: ${foundInCookie}`);
+  console.log(`   Tamanho: ${accessToken.length} chars`);
+  console.log(`   Início: ${accessToken.substring(0, 20)}...`);
+  console.log("═══════════════════════════════════════");
 
   // Criar cliente com token
   const client = createClient(
@@ -95,13 +185,17 @@ export async function POST(request: NextRequest) {
   try {
     console.log("📍 1. POST /api/upload - Iniciando...");
 
-    // 1. Criar cliente autenticado
-    const supabase = await createAuthenticatedClient(); // ← AWAIT aqui!
+    // 1. Criar cliente autenticado (com debug completo)
+    const supabase = await createAuthenticatedClient();
 
     if (!supabase) {
       console.log("❌ Não foi possível criar cliente autenticado");
+      console.log("   Verifique os logs acima para mais detalhes");
       return NextResponse.json(
-        { error: "No authentication found. Please login again." },
+        {
+          error: "No authentication found. Please login again.",
+          hint: "Check server logs for details about available cookies",
+        },
         { status: 401 },
       );
     }
@@ -237,7 +331,7 @@ export async function DELETE(request: NextRequest) {
   try {
     console.log("📍 DELETE /api/upload - Iniciando...");
 
-    const supabase = await createAuthenticatedClient(); // ← AWAIT aqui!
+    const supabase = await createAuthenticatedClient();
 
     if (!supabase) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
