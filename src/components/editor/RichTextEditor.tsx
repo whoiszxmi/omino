@@ -186,8 +186,6 @@ export default function RichTextEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        horizontalRule: true,
-        blockquote: true,
       }),
       Underline,
       Link.configure({
@@ -217,32 +215,29 @@ export default function RichTextEditor({
     },
   });
 
-  const { isActive } = useEditorState({
-    editor,
-    selector: (ctx) => {
-      const e = ctx.editor;
-      if (!e) return EMPTY_ACTIVE;
-      return {
-        bold: e.isActive("bold"),
-        italic: e.isActive("italic"),
-        underline: e.isActive("underline"),
-        link: e.isActive("link"),
-        bullet: e.isActive("bulletList"),
-        ordered: e.isActive("orderedList"),
-        h1: e.isActive("heading", { level: 1 }),
-        h2: e.isActive("heading", { level: 2 }),
-        h3: e.isActive("heading", { level: 3 }),
-        blockquote: e.isActive("blockquote"),
-        hr: e.isActive("horizontalRule"),
-        table: e.isActive("table"),
-      };
-    },
-  });
+  const a =
+    useEditorState({
+      editor,
+      selector: (ctx) => {
+        const e = ctx.editor;
+        if (!e) return EMPTY_ACTIVE;
 
-  const active: ActiveState = useMemo(() => {
-    if (!editor) return EMPTY_ACTIVE;
-    return isActive ?? EMPTY_ACTIVE;
-  }, [editor, isActive]);
+        return {
+          bold: e.isActive("bold"),
+          italic: e.isActive("italic"),
+          underline: e.isActive("underline"),
+          link: e.isActive("link"),
+          bullet: e.isActive("bulletList"),
+          ordered: e.isActive("orderedList"),
+          h1: e.isActive("heading", { level: 1 }),
+          h2: e.isActive("heading", { level: 2 }),
+          h3: e.isActive("heading", { level: 3 }),
+          blockquote: e.isActive("blockquote"),
+          hr: e.isActive("horizontalRule"),
+          table: e.isActive("table"),
+        } satisfies ActiveState;
+      },
+    }) ?? EMPTY_ACTIVE;
 
   // Manter o editor sincronizado com valor externo
   useEffect(() => {
@@ -311,7 +306,6 @@ export default function RichTextEditor({
   }
 
   if (!editor) return null;
-  const a: ActiveState = active ?? EMPTY_ACTIVE;
 
   return (
     <div className="relative rounded-xl border bg-background">

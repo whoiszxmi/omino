@@ -1,13 +1,7 @@
 // lib/storage/image-optimizer.ts
 import sharp from "sharp";
 
-export type ImageType =
-  | "avatar"
-  | "banner"
-  | "wallpaper"
-  | "post"
-  | "wiki"
-  | "thumbnail";
+export type ImageType = "avatar" | "banner" | "wallpaper" | "post" | "wiki";
 
 interface OptimizeOptions {
   type: ImageType;
@@ -47,10 +41,6 @@ const IMAGE_SIZES: Record<ImageType, ImageDimensions> = {
     width: 1600,
     fit: "inside",
   },
-  thumbnail: {
-    width: 400,
-    fit: "inside",
-  },
 };
 
 /**
@@ -82,22 +72,6 @@ export async function optimizeImage(
   }
 
   return pipeline.toBuffer();
-}
-
-/**
- * Criar thumbnail de uma imagem
- */
-export async function createThumbnail(
-  buffer: Buffer,
-  size: number = 200,
-): Promise<Buffer> {
-  return sharp(buffer)
-    .resize(size, size, {
-      fit: "cover",
-      position: "center",
-    })
-    .webp({ quality: 80 })
-    .toBuffer();
 }
 
 /**
@@ -158,15 +132,13 @@ export function estimateOptimizedSize(
  * Processar imagem com múltiplas variantes
  */
 export async function processImageVariants(buffer: Buffer) {
-  const [original, thumbnail, placeholder] = await Promise.all([
+  const [original, placeholder] = await Promise.all([
     optimizeImage(buffer, { type: "post" }),
-    createThumbnail(buffer, 400),
     generateBlurPlaceholder(buffer),
   ]);
 
   return {
     original,
-    thumbnail,
     placeholder,
   };
 }
@@ -180,7 +152,6 @@ export const IMAGE_SIZE_LIMITS = {
   wallpaper: 10 * 1024 * 1024, // 10MB
   post: 5 * 1024 * 1024, // 5MB
   wiki: 5 * 1024 * 1024, // 5MB
-  thumbnail: 500 * 1024, // 500KB
 };
 
 /**
