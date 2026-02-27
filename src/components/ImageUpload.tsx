@@ -5,9 +5,9 @@ import { useState, useRef } from "react";
 import { Upload, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "sonner"; // ✅ Mudado de @/lib/toast para sonner
 import Image from "next/image";
-import { supabase } from "@/lib/supabase/client"; // ✅ IMPORTANTE: Importar supabase
+import { supabase } from "@/lib/supabase/client"; // ✅ ADICIONADO: Importar supabase
 
 interface ImageUploadProps {
   type: "avatar" | "banner" | "wallpaper" | "post" | "wiki";
@@ -82,11 +82,19 @@ export function ImageUpload({
     setProgress(0);
 
     try {
-      // ✅ NOVO: Pegar token de autenticação
+      console.log("🔍 Frontend: Iniciando upload...");
+
+      // ✅ ADICIONADO: Pegar token de autenticação
       const {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession();
+
+      console.log("🔍 Frontend: Session:", {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+        error: sessionError?.message,
+      });
 
       if (sessionError || !session) {
         throw new Error("Você precisa estar logado para fazer upload");
@@ -104,7 +112,9 @@ export function ImageUpload({
         setProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
-      // ✅ NOVO: Enviar token no header Authorization
+      console.log("🔍 Frontend: Enviando request com token...");
+
+      // ✅ ADICIONADO: Enviar token no header Authorization
       const response = await fetch("/api/upload", {
         method: "POST",
         headers: {
@@ -113,15 +123,19 @@ export function ImageUpload({
         body: formData,
       });
 
+      console.log("🔍 Frontend: Response status:", response.status);
+
       clearInterval(progressInterval);
       setProgress(100);
 
       if (!response.ok) {
         const error = await response.json();
+        console.error("🔍 Frontend: Error response:", error);
         throw new Error(error.error || "Erro ao fazer upload");
       }
 
       const data = await response.json();
+      console.log("🔍 Frontend: Upload sucesso!", data);
 
       // Mostrar economia de tamanho
       if (data.metadata?.savings) {
@@ -135,7 +149,7 @@ export function ImageUpload({
       onUpload(data.url);
       setPreviewUrl(data.url);
     } catch (error) {
-      console.error("Upload error:", error);
+      console.error("💥 Frontend: Upload error:", error);
       toast.error(
         error instanceof Error ? error.message : "Erro ao fazer upload",
       );
