@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Image from "next/image";
+import { uploadImageAction } from "@/app/actions/upload";
 
 interface ImageUploadProps {
   type: "avatar" | "banner" | "wallpaper" | "post" | "wiki";
@@ -81,6 +82,7 @@ export function ImageUpload({
     setProgress(0);
 
     try {
+      // Criar FormData
       const formData = new FormData();
       formData.append("file", file);
       formData.append("type", type);
@@ -93,34 +95,27 @@ export function ImageUpload({
         setProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
-      // ✅ SOLUÇÃO: Usar credentials: "include" para enviar cookies
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        credentials: "include", // ← CRÍTICO: Envia cookies automaticamente
-        body: formData,
-      });
+      // ✅ USAR SERVER ACTION (SEM FETCH, SEM COOKIES, SEM NADA!)
+      const result = await uploadImageAction(formData);
 
       clearInterval(progressInterval);
       setProgress(100);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Erro ao fazer upload");
+      if (!result.success) {
+        throw new Error(result.error || "Erro ao fazer upload");
       }
 
-      const data = await response.json();
-
-      // Mostrar economia de tamanho
-      if (data.metadata?.savings) {
+      // Mostrar economia
+      if (result.metadata?.savings) {
         toast.success(
-          `Upload concluído! Economia de ${data.metadata.savings}% em tamanho`,
+          `Upload concluído! Economia de ${result.metadata.savings}%`,
         );
       } else {
         toast.success("Upload concluído!");
       }
 
-      onUpload(data.url);
-      setPreviewUrl(data.url);
+      onUpload(result.url!);
+      setPreviewUrl(result.url!);
     } catch (error) {
       console.error("Upload error:", error);
       toast.error(
@@ -154,7 +149,6 @@ export function ImageUpload({
             />
           </div>
 
-          {/* Overlay com ações */}
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
             <Button
               size="sm"
@@ -176,7 +170,6 @@ export function ImageUpload({
             </Button>
           </div>
 
-          {/* Progresso de upload */}
           {uploading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/75">
               <div className="text-center">
@@ -226,9 +219,6 @@ export function ImageUpload({
   );
 }
 
-/**
- * Componente simplificado para avatar
- */
 export function AvatarUpload({
   currentUrl,
   onUpload,
@@ -246,9 +236,6 @@ export function AvatarUpload({
   );
 }
 
-/**
- * Componente simplificado para banner
- */
 export function BannerUpload({
   currentUrl,
   onUpload,
