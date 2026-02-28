@@ -382,9 +382,9 @@ export default function ProfilePage() {
           </div>
 
           {/* ── Banner + avatar + info ─────────────────────────────────────── */}
-          <div className="overflow-hidden rounded-2xl border card-raised">
+          <div className="rounded-2xl border card-raised">
             {/* Banner */}
-            <div className="relative h-32 bg-gradient-to-br from-primary/20 to-accent/30">
+            <div className="relative h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-primary/20 to-accent/30">
               {profile.banner_url && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
