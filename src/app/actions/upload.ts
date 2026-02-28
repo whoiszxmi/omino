@@ -1,7 +1,8 @@
 // app/actions/upload.ts
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import {
   uploadToR2,
   deleteFromR2,
@@ -21,14 +22,37 @@ export async function uploadImageAction(formData: FormData) {
   try {
     console.log("🚀 Server Action: Iniciando upload...");
 
-    // 1. Autenticação (MUITO MAIS SIMPLES!)
-    const supabase = await createClient();
+    const cookieStore = await cookies();
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options),
+              );
+            } catch {}
+          },
+        },
+      },
+    );
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
       console.log("❌ Usuário não autenticado");
+      console.log(
+        "Cookies disponíveis:",
+        cookieStore.getAll().map((c) => c.name),
+      );
       return {
         success: false,
         error: "Por favor, faça login novamente",
@@ -37,7 +61,6 @@ export async function uploadImageAction(formData: FormData) {
 
     console.log("✅ Usuário:", user.email);
 
-    // 2. Obter dados
     const file = formData.get("file") as File;
     const type = formData.get("type") as ImageType;
     const oldUrl = formData.get("oldUrl") as string | null;
@@ -48,12 +71,10 @@ export async function uploadImageAction(formData: FormData) {
 
     console.log("📁 Arquivo:", file.name, file.size);
 
-    // 3. Validar tamanho
     if (!validateFileSize(file.size, type)) {
       return { success: false, error: "Arquivo muito grande" };
     }
 
-    // 4. Converter e validar
     const buffer = Buffer.from(await file.arrayBuffer());
     const isValid = await validateImage(buffer);
 
@@ -61,9 +82,6 @@ export async function uploadImageAction(formData: FormData) {
       return { success: false, error: "Arquivo de imagem inválido" };
     }
 
-    console.log("✅ Imagem válida");
-
-    // 5. Otimizar
     const metadata = await getImageMetadata(buffer);
     const optimized = await optimizeImage(buffer, {
       type,
@@ -71,13 +89,6 @@ export async function uploadImageAction(formData: FormData) {
       format: "webp",
     });
 
-    console.log("✅ Otimizada:", {
-      original: file.size,
-      otimizado: optimized.length,
-      economia: Math.round((1 - optimized.length / file.size) * 100) + "%",
-    });
-
-    // 6. Upload para R2
     const path = generateImagePath(user.id, type);
     const url = await uploadToR2({
       file: optimized,
@@ -87,30 +98,27 @@ export async function uploadImageAction(formData: FormData) {
 
     console.log("✅ Upload concluído:", url);
 
-    // 7. Deletar antiga
     if (oldUrl) {
       const oldPath = extractR2Path(oldUrl);
       if (oldPath) {
         try {
           await deleteFromR2(oldPath);
-          console.log("✅ Imagem antiga deletada");
         } catch (error) {
           console.error("⚠️ Erro ao deletar antiga:", error);
         }
       }
     }
 
-    // 8. Retornar sucesso
     return {
       success: true,
-      url,
+      url: String(url),
       metadata: {
-        width: metadata.width,
-        height: metadata.height,
-        format: metadata.format,
-        originalSize: file.size,
-        optimizedSize: optimized.length,
-        savings: Math.round((1 - optimized.length / file.size) * 100),
+        width: Number(metadata.width) || 0,
+        height: Number(metadata.height) || 0,
+        format: String(metadata.format || "webp"),
+        originalSize: Number(file.size),
+        optimizedSize: Number(optimized.length),
+        savings: Number(Math.round((1 - optimized.length / file.size) * 100)),
       },
     };
   } catch (error) {
