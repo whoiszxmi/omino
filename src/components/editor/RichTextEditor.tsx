@@ -140,6 +140,8 @@ function getEditorCss() {
   }
   .amino-editor .ProseMirror {
     min-height: 120px;
+    max-height: 400px;
+    overflow-y: auto;
     padding: 0.75rem;
   }
   .amino-editor .is-editor-empty:before {
