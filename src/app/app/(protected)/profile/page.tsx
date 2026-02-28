@@ -383,22 +383,20 @@ export default function ProfilePage() {
 
           {/* ── Banner + avatar + info ─────────────────────────────────────── */}
           <div className="rounded-2xl border card-raised">
-            {/* Banner */}
-            <div className="relative h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-primary/20 to-accent/30">
-              {profile.banner_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={profile.banner_url}
-                  alt="banner"
-                  className="h-full w-full object-cover"
-                />
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="px-4 pb-4">
-              {/* Avatar sobrepõe o banner */}
-              <div className="-mt-8 mb-3 h-16 w-16 overflow-hidden rounded-2xl border-2 border-background bg-muted shadow-md">
+            {/* Banner + avatar em container relative */}
+            <div className="relative">
+              <div className="h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-primary/20 to-accent/30">
+                {profile.banner_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={profile.banner_url}
+                    alt="banner"
+                    className="h-full w-full object-cover"
+                  />
+                )}
+              </div>
+              {/* Avatar com absolute — fica fora do overflow-hidden do banner */}
+              <div className="absolute left-4 -bottom-8 z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-background bg-muted shadow-md">
                 {profile.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -412,7 +410,10 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
+            </div>
 
+            {/* Info */}
+            <div className="px-4 pb-4 pt-10">
               <div className="space-y-1">
                 <h2 className="text-xl font-semibold leading-tight">
                   {displayName}
