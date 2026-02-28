@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { uploadPublicImage } from "@/lib/storage/uploadPublicImage";
+import { uploadImageAction } from "@/app/actions/upload";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,10 +32,14 @@ export default function EditProfilePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -99,26 +103,54 @@ export default function EditProfilePage() {
     router.push("/app/profile");
   }
 
-  async function pickAvatar(file: File) {
-    if (!profile) return;
-    const url = await uploadPublicImage({ file, type: "avatar" });
-    const { error } = await supabase
-      .from("profiles")
-      .update({ avatar_url: url })
-      .eq("id", profile.id);
-    if (error) throw error;
-    setProfile((p) => (p ? { ...p, avatar_url: url } : p));
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !profile) return;
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", f);
+      formData.append("type", "avatar");
+      const result = await uploadImageAction(formData);
+      if (!result.success) throw new Error(result.error || "Erro no upload");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ avatar_url: result.url })
+        .eq("id", profile.id);
+      if (error) throw error;
+      setProfile((p) => (p ? { ...p, avatar_url: result.url! } : p));
+      toast.success("Avatar atualizado!");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Falha no upload");
+    } finally {
+      setUploadingAvatar(false);
+    }
   }
 
-  async function pickBanner(file: File) {
-    if (!profile) return;
-    const url = await uploadPublicImage({ file, type: "banner" });
-    const { error } = await supabase
-      .from("profiles")
-      .update({ banner_url: url })
-      .eq("id", profile.id);
-    if (error) throw error;
-    setProfile((p) => (p ? { ...p, banner_url: url } : p));
+  async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !profile) return;
+    setUploadingBanner(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", f);
+      formData.append("type", "banner");
+      const result = await uploadImageAction(formData);
+      if (!result.success) throw new Error(result.error || "Erro no upload");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ banner_url: result.url })
+        .eq("id", profile.id);
+      if (error) throw error;
+      setProfile((p) => (p ? { ...p, banner_url: result.url! } : p));
+      toast.success("Capa atualizada!");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Falha no upload");
+    } finally {
+      setUploadingBanner(false);
+    }
   }
 
   return (
@@ -170,65 +202,41 @@ export default function EditProfilePage() {
                   </div>
                 </div>
               </div>
+
               <div className="flex gap-2">
-                <label className="flex-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (!f) return;
-                      try {
-                        await pickAvatar(f);
-                        toast.success("Avatar atualizado!");
-                      } catch (err: unknown) {
-                        toast.error(
-                          err instanceof Error
-                            ? err.message
-                            : "Falha no upload",
-                        );
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    className="w-full rounded-2xl"
-                    variant="secondary"
-                  >
-                    Trocar avatar
-                  </Button>
-                </label>
-                <label className="flex-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (!f) return;
-                      try {
-                        await pickBanner(f);
-                        toast.success("Capa atualizada!");
-                      } catch (err: unknown) {
-                        toast.error(
-                          err instanceof Error
-                            ? err.message
-                            : "Falha no upload",
-                        );
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    className="w-full rounded-2xl"
-                    variant="secondary"
-                  >
-                    Trocar capa
-                  </Button>
-                </label>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
+                <Button
+                  type="button"
+                  className="flex-1 rounded-2xl"
+                  variant="secondary"
+                  disabled={uploadingAvatar}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {uploadingAvatar ? "Enviando..." : "Trocar avatar"}
+                </Button>
+
+                <input
+                  ref={bannerInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleBannerChange}
+                />
+                <Button
+                  type="button"
+                  className="flex-1 rounded-2xl"
+                  variant="secondary"
+                  disabled={uploadingBanner}
+                  onClick={() => bannerInputRef.current?.click()}
+                >
+                  {uploadingBanner ? "Enviando..." : "Trocar capa"}
+                </Button>
               </div>
             </CardContent>
           </Card>
