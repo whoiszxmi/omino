@@ -101,7 +101,7 @@ export default function EditProfilePage() {
 
   async function pickAvatar(file: File) {
     if (!profile) return;
-    const url = await uploadPublicImage({ file, folder: "profiles/avatar" });
+    const url = await uploadPublicImage({ file, type: "avatar" });
     const { error } = await supabase
       .from("profiles")
       .update({ avatar_url: url })
@@ -112,7 +112,7 @@ export default function EditProfilePage() {
 
   async function pickBanner(file: File) {
     if (!profile) return;
-    const url = await uploadPublicImage({ file, folder: "profiles/banner" });
+    const url = await uploadPublicImage({ file, type: "banner" });
     const { error } = await supabase
       .from("profiles")
       .update({ banner_url: url })

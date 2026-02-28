@@ -1,10 +1,3 @@
-/**
- * ✅ ATUALIZADO PARA R2
- *
- * Helper para upload de imagens públicas usando Cloudflare R2
- * Esta função agora usa a API route /api/upload que faz upload para R2
- */
-
 import { uploadImageAction } from "@/app/actions/upload";
 
 export async function uploadPublicImage({
@@ -13,7 +6,9 @@ export async function uploadPublicImage({
 }: {
   file: File;
   type?: "avatar" | "banner" | "wallpaper" | "post" | "wiki";
+  /** @deprecated não usado mais */
   bucket?: string;
+  /** @deprecated não usado mais */
   folder?: string;
 }): Promise<string> {
   const maxSizes = {
@@ -46,27 +41,3 @@ export async function uploadPublicImage({
 
   return result.url!;
 }
-
-/**
- * Exemplo de uso:
- *
- * ```typescript
- * // Avatar
- * const avatarUrl = await uploadPublicImage({
- *   file: avatarFile,
- *   type: "avatar",
- * });
- *
- * // Banner
- * const bannerUrl = await uploadPublicImage({
- *   file: bannerFile,
- *   type: "banner",
- * });
- *
- * // Imagem em post
- * const imageUrl = await uploadPublicImage({
- *   file: imageFile,
- *   type: "post",
- * });
- * ```
- */

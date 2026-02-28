@@ -17,8 +17,8 @@ import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { TableCell } from "@tiptap/extension-table-cell";
-import { supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { uploadImageAction } from "@/app/actions/upload";
 
 import {
   Bold,
@@ -247,37 +247,18 @@ export default function RichTextEditor({
     }
   }, [valueHtml, editor]);
 
-  /**
-   * ✅ NOVA FUNÇÃO - Upload usando R2 via API route
-   */
   async function uploadImage(file: File): Promise<string> {
-    // Validar autenticação
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) throw new Error("Não logado.");
-
-    // Validar tamanho (5MB para imagens inline)
     if (file.size > 5 * 1024 * 1024) {
       throw new Error("Imagem muito grande. Máximo: 5MB");
     }
-
-    // Preparar FormData
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("type", "post"); // Tipo para imagens inline em posts/wikis
-
-    // Upload via API route (usa R2)
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Erro ao fazer upload");
+    formData.append("type", "post");
+    const result = await uploadImageAction(formData);
+    if (!result.success) {
+      throw new Error(result.error || "Erro ao fazer upload");
     }
-
-    const data = await response.json();
-    return data.url; // URL do R2
+    return result.url!;
   }
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {

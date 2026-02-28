@@ -1,29 +1,32 @@
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { NextResponse, type NextRequest } from "next/server";
 
-export async function createClient() {
-  const cookieStore = await cookies();
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request });
 
-  return createServerClient(
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options),
-            );
-          } catch {
-            // O método `setAll` foi chamado de um Server Component.
-            // Isso pode ser ignorado se você tiver middleware atualizando
-            // cookies dos usuários.
-          }
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value),
+          );
+          supabaseResponse = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options),
+          );
         },
       },
     },
   );
+
+  // Renova a sessão para que os cookies estejam disponíveis nas Server Actions
+  await supabase.auth.getUser();
+
+  return supabaseResponse;
 }
