@@ -40,6 +40,12 @@ export default function PostComments({ postId }: { postId: string }) {
   const [html, setHtml] = useState("");
   const [sending, setSending] = useState(false);
 
+  // NOVOS ESTADOS
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingHtml, setEditingHtml] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   function mapRow(row: CommentRow): Comment {
     return {
       id: row.id,
@@ -86,12 +92,10 @@ export default function PostComments({ postId }: { postId: string }) {
   async function send() {
     const content = html.trim();
     if (!content || content === "<p></p>") return;
-
     if (!activePersona || sending) return;
 
     setSending(true);
 
-    // otimista
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     const optimistic: Comment = {
       id: optimisticId,
@@ -135,9 +139,70 @@ export default function PostComments({ postId }: { postId: string }) {
     }
 
     const real = mapRow(data as any);
-
-    // substitui optimistic pelo real
     setComments((prev) => prev.map((c) => (c.id === optimisticId ? real : c)));
+  }
+
+  // EDITAR
+  function startEdit(comment: Comment) {
+    setEditingId(comment.id);
+    setEditingHtml(comment.content_html);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingHtml("");
+  }
+
+  async function saveEdit(id: string) {
+    const content = editingHtml.trim();
+    if (!content || content === "<p></p>" || savingEdit) return;
+
+    setSavingEdit(true);
+
+    // otimista
+    const previous = comments;
+    setComments((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, content_html: content } : c)),
+    );
+
+    const { error } = await supabase
+      .from("post_comments")
+      .update({ content_html: content })
+      .eq("id", id);
+
+    setSavingEdit(false);
+
+    if (error) {
+      console.error("ERRO edit comment:", error);
+      setComments(previous);
+      return;
+    }
+
+    setEditingId(null);
+    setEditingHtml("");
+  }
+
+  // DELETAR
+  async function removeComment(id: string) {
+    if (deletingId) return;
+    if (!confirm("Tem certeza que deseja excluir este comentário?")) return;
+
+    setDeletingId(id);
+
+    const previous = comments;
+    setComments((prev) => prev.filter((c) => c.id !== id));
+
+    const { error } = await supabase
+      .from("post_comments")
+      .delete()
+      .eq("id", id);
+
+    setDeletingId(null);
+
+    if (error) {
+      console.error("ERRO delete comment:", error);
+      setComments(previous);
+    }
   }
 
   return (
@@ -160,21 +225,83 @@ export default function PostComments({ postId }: { postId: string }) {
               Seja o primeiro a comentar.
             </div>
           ) : (
-            comments.map((c) => (
-              <div key={c.id} className="rounded-2xl border p-3">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {c.persona.name} •{" "}
-                  {new Date(c.created_at).toLocaleString("pt-BR")}
-                </div>
+            comments.map((c) => {
+              const isOwner = activePersona?.id === c.persona.id;
+              const isEditing = editingId === c.id;
 
-                <div
-                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(c.content_html),
-                  }}
-                />
-              </div>
-            ))
+              return (
+                <div key={c.id} className="rounded-2xl border p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      {c.persona.name} •{" "}
+                      {new Date(c.created_at).toLocaleString("pt-BR")}
+                    </div>
+
+                    {isOwner && !isEditing && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => startEdit(c)}
+                        >
+                          Editar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-500"
+                          disabled={deletingId === c.id}
+                          onClick={() => removeComment(c.id)}
+                        >
+                          {deletingId === c.id ? "Excluindo..." : "Excluir"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div className="mt-2">
+                      <RichTextEditor
+                        valueHtml={editingHtml}
+                        onChangeHtml={setEditingHtml}
+                        placeholder="Editar comentário..."
+                        folder="comments"
+                        bucket="media"
+                        compact
+                      />
+
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => saveEdit(c.id)}
+                          disabled={
+                            savingEdit ||
+                            !editingHtml.trim() ||
+                            editingHtml.trim() === "<p></p>"
+                          }
+                        >
+                          {savingEdit ? "Salvando..." : "Salvar"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={cancelEdit}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words mt-2"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(c.content_html),
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })
           )}
 
           <div className="rounded-2xl border p-3">
