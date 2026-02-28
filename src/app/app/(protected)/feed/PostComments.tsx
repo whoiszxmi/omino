@@ -6,6 +6,7 @@ import { useActivePersona } from "@/lib/persona/useActivePersona";
 import { Button } from "@/components/ui/button";
 import DOMPurify from "isomorphic-dompurify";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import { Pencil, Trash2, X, Check } from "lucide-react";
 
 type CommentRow = {
   id: string;
@@ -31,6 +32,12 @@ export default function PostComments({ postId }: { postId: string }) {
   const [html, setHtml] = useState("");
   const [sending, setSending] = useState(false);
 
+  // Edição
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editHtml, setEditHtml] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   function mapRow(row: CommentRow): Comment {
     return {
       id: row.id,
@@ -46,25 +53,16 @@ export default function PostComments({ postId }: { postId: string }) {
 
   async function load() {
     setLoading(true);
-
     const { data, error } = await supabase
       .from("post_comments")
       .select(
-        `
-        id,
-        content_html,
-        created_at,
-        persona_id,
-        personas ( name, avatar_url )
-      `,
+        `id, content_html, created_at, persona_id, personas ( name, avatar_url )`,
       )
       .eq("post_id", postId)
       .order("created_at", { ascending: true });
 
     if (error) console.error("ERRO load comments:", error);
-
-    const mapped = (data ?? []).map((r: any) => mapRow(r as CommentRow));
-    setComments(mapped);
+    setComments((data ?? []).map((r: any) => mapRow(r as CommentRow)));
     setLoading(false);
   }
 
@@ -76,12 +74,10 @@ export default function PostComments({ postId }: { postId: string }) {
   async function send() {
     const content = html.trim();
     if (!content || content === "<p></p>") return;
-
     if (!activePersona || sending) return;
 
     setSending(true);
 
-    // otimista
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     const optimistic: Comment = {
       id: optimisticId,
@@ -105,13 +101,7 @@ export default function PostComments({ postId }: { postId: string }) {
         content_html: content,
       })
       .select(
-        `
-        id,
-        content_html,
-        created_at,
-        persona_id,
-        personas ( name, avatar_url )
-      `,
+        `id, content_html, created_at, persona_id, personas ( name, avatar_url )`,
       )
       .single();
 
@@ -124,10 +114,59 @@ export default function PostComments({ postId }: { postId: string }) {
       return;
     }
 
-    const real = mapRow(data as any);
+    setComments((prev) =>
+      prev.map((c) => (c.id === optimisticId ? mapRow(data as any) : c)),
+    );
+  }
 
-    // substitui optimistic pelo real
-    setComments((prev) => prev.map((c) => (c.id === optimisticId ? real : c)));
+  function startEdit(c: Comment) {
+    setEditingId(c.id);
+    setEditHtml(c.content_html);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditHtml("");
+  }
+
+  async function saveEdit(commentId: string) {
+    const content = editHtml.trim();
+    if (!content || content === "<p></p>") return;
+
+    setSaving(true);
+    const { error } = await supabase
+      .from("post_comments")
+      .update({ content_html: content })
+      .eq("id", commentId);
+    setSaving(false);
+
+    if (error) {
+      console.error("ERRO edit comment:", error);
+      return;
+    }
+
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === commentId ? { ...c, content_html: content } : c,
+      ),
+    );
+    cancelEdit();
+  }
+
+  async function deleteComment(commentId: string) {
+    setDeletingId(commentId);
+    const { error } = await supabase
+      .from("post_comments")
+      .delete()
+      .eq("id", commentId);
+    setDeletingId(null);
+
+    if (error) {
+      console.error("ERRO delete comment:", error);
+      return;
+    }
+
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
   }
 
   return (
@@ -150,28 +189,95 @@ export default function PostComments({ postId }: { postId: string }) {
               Seja o primeiro a comentar.
             </div>
           ) : (
-            comments.map((c) => (
-              <div key={c.id} className="rounded-2xl border p-3">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {c.persona.name} •{" "}
-                  {new Date(c.created_at).toLocaleString("pt-BR")}
-                </div>
+            comments.map((c) => {
+              const isMine = activePersona?.id === c.persona.id;
+              const isEditing = editingId === c.id;
 
-                <div
-                  className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(c.content_html),
-                  }}
-                />
-              </div>
-            ))
+              return (
+                <div key={c.id} className="rounded-2xl border p-3 space-y-2">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      {c.persona.name} •{" "}
+                      {new Date(c.created_at).toLocaleString("pt-BR")}
+                    </div>
+
+                    {isMine && !isEditing && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(c)}
+                          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                          title="Editar"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteComment(c.id)}
+                          disabled={deletingId === c.id}
+                          className="rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Conteúdo ou editor */}
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <RichTextEditor
+                        valueHtml={editHtml}
+                        onChangeHtml={setEditHtml}
+                        placeholder="Editar comentário..."
+                        compact
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="rounded-xl gap-1"
+                          onClick={() => saveEdit(c.id)}
+                          disabled={
+                            saving ||
+                            !editHtml.trim() ||
+                            editHtml.trim() === "<p></p>"
+                          }
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          {saving ? "Salvando..." : "Salvar"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="rounded-xl gap-1"
+                          onClick={cancelEdit}
+                          disabled={saving}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="prose prose-invert max-w-none text-sm overflow-x-auto break-words"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(c.content_html),
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })
           )}
 
+          {/* Novo comentário */}
           <div className="rounded-2xl border p-3">
             <div className="mb-2 text-xs text-muted-foreground">
               Comentando como: {activePersona?.name ?? "—"}
             </div>
-
             <RichTextEditor
               valueHtml={html}
               onChangeHtml={setHtml}
@@ -180,7 +286,6 @@ export default function PostComments({ postId }: { postId: string }) {
               bucket="media"
               compact
             />
-
             <Button
               className="mt-3 w-full rounded-2xl"
               onClick={send}
