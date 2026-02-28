@@ -13,6 +13,7 @@ import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
+import HardBreak from "@tiptap/extension-hard-break";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableHeader } from "@tiptap/extension-table-header";
@@ -59,6 +60,10 @@ function getEditorCss() {
     word-break: break-word;
     overflow-wrap: anywhere;
   }
+  .amino-editor p { margin: 0; line-height: 1.6; }
+  .amino-editor br { display: block; content: ""; margin-top: 0.5rem; }
+  .amino-editor p:first-child { margin-top: 0; }
+  .amino-editor p:last-child { margin-bottom: 0; }
   .amino-editor p,
   .amino-editor li,
   .amino-editor blockquote,
@@ -190,6 +195,16 @@ export default function RichTextEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        hardBreak: false, // vamos sobrescrever com comportamento customizado
+      }),
+      // Enter cria <br> (linha vazia visível), Shift+Enter cria novo parágrafo
+      HardBreak.extend({
+        addKeyboardShortcuts() {
+          return {
+            Enter: () => this.editor.commands.setHardBreak(),
+            "Shift-Enter": () => this.editor.commands.splitBlock(),
+          };
+        },
       }),
       Underline,
       Link.configure({
