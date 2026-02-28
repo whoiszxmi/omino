@@ -9,6 +9,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ExternalLink, UserRound } from "lucide-react";
 
 type Props = {
   children: React.ReactNode;
@@ -22,35 +23,46 @@ type Props = {
 export default function UserCardModal({ children, user }: Props) {
   const profileHref = user.username ? `/app/u/${user.username}` : null;
 
+  // Se tem username, envolve o trigger em Link direto - sem abrir modal
+  if (profileHref) {
+    return (
+      <Link href={profileHref} className="contents">
+        {children}
+      </Link>
+    );
+  }
+
+  // Se não tem username, abre modal simples
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="rounded-2xl">
+      <DialogContent className="max-w-xs rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Perfil do usuário</DialogTitle>
+          <DialogTitle className="text-base">Perfil</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-14 w-14 overflow-hidden rounded-2xl border bg-muted">
-              {user.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.avatar_url} alt="avatar" className="h-full w-full object-cover" />
-              ) : null}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold">
-                {user.display_name ?? user.username ?? "Usuário"}
-              </p>
-              <p className="truncate text-sm text-muted-foreground">@{user.username ?? "sem-username"}</p>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 overflow-hidden rounded-2xl border bg-muted">
+            {user.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.avatar_url}
+                alt="avatar"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <UserRound className="h-5 w-5 text-muted-foreground" />
+              </div>
+            )}
           </div>
-          {profileHref ? (
-            <Button asChild className="w-full rounded-xl">
-              <Link href={profileHref}>Ver perfil</Link>
-            </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground">Este usuário não possui username público.</p>
-          )}
+          <div className="min-w-0">
+            <p className="truncate font-semibold">
+              {user.display_name ?? "Usuário"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Sem username público
+            </p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

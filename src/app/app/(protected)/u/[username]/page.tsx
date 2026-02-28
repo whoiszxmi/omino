@@ -151,20 +151,20 @@ export default function PublicProfilePage({
         </Card>
       ) : (
         <>
-          <div className="overflow-hidden rounded-2xl border">
-            <div className="relative h-28 bg-muted">
-              {profile.banner_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={profile.banner_url}
-                  alt="banner"
-                  className="h-full w-full object-cover"
-                />
-              ) : null}
-            </div>
-
-            <div className="flex items-start gap-3 p-4">
-              <div className="-mt-10 h-16 w-16 overflow-hidden rounded-2xl border bg-background">
+          <div className="rounded-2xl border card-raised">
+            {/* Banner + avatar */}
+            <div className="relative">
+              <div className="h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-primary/20 to-accent/30">
+                {profile.banner_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={profile.banner_url}
+                    alt="banner"
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </div>
+              <div className="absolute left-4 -bottom-8 z-10 h-16 w-16 overflow-hidden rounded-2xl border-2 border-background bg-muted shadow-md">
                 {profile.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -174,33 +174,39 @@ export default function PublicProfilePage({
                   />
                 ) : null}
               </div>
+            </div>
 
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold">
-                  {profile.display_name ?? profile.username ?? "Sem nome"}
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  @{profile.username ?? "sem-username"}
-                </div>
+            <div className="px-4 pb-4 pt-10">
+              <h2 className="text-xl font-semibold leading-tight">
+                {profile.display_name ?? profile.username ?? "Sem nome"}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                @{profile.username ?? "sem-username"}
+              </p>
 
-                {profile.bio ? (
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    {profile.bio}
-                  </div>
-                ) : null}
+              {profile.bio ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {profile.bio}
+                </p>
+              ) : null}
 
-                <div className="mt-3 flex items-center gap-2">
-                  <FollowButton targetUserId={profile.id} />
-
-                  <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>
-                      <b className="text-foreground">{followers}</b> seguidores
-                    </span>
-                    <span>
-                      <b className="text-foreground">{following}</b> seguindo
-                    </span>
-                  </div>
-                </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <FollowButton targetUserId={profile.id} />
+                <button
+                  type="button"
+                  className="flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-muted/60 transition"
+                >
+                  <b>{followers}</b> seguidores
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-muted/60 transition"
+                >
+                  <b>{following}</b> seguindo
+                </button>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {posts.length} post{posts.length !== 1 ? "s" : ""}
+                </span>
               </div>
             </div>
           </div>
@@ -227,7 +233,9 @@ export default function PublicProfilePage({
                       {new Date(p.created_at).toLocaleString("pt-BR")}
                     </div>
 
-                    <h3 className="line-clamp-2 text-base font-semibold">{p.title}</h3>
+                    <h3 className="line-clamp-2 text-base font-semibold">
+                      {p.title}
+                    </h3>
 
                     <div className="my-3 relative aspect-[16/9] overflow-hidden rounded-xl border bg-muted/30">
                       <div
@@ -239,7 +247,9 @@ export default function PublicProfilePage({
                       </div>
                     </div>
 
-                    <p className="line-clamp-3 text-sm text-muted-foreground">{p.excerpt || "Sem prévia disponível."}</p>
+                    <p className="line-clamp-3 text-sm text-muted-foreground">
+                      {p.excerpt || "Sem prévia disponível."}
+                    </p>
                   </button>
                 ))
               )}

@@ -259,6 +259,8 @@ export default function NewPostPage() {
               folder="posts"
               imageInsertMode="both"
               enableTables={false}
+              showWordCount
+              warnOnLeave
             />
           </div>
 

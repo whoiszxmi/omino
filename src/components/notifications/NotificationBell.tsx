@@ -51,8 +51,26 @@ export default function NotificationBell() {
           table: "notifications",
           filter: `user_id=eq.${userId}`,
         },
-        () => {
+        async (payload) => {
           setUnread((n) => n + 1);
+          // Se o popover estiver aberto, atualiza a lista em tempo real
+          setNotifications((prevNotifications) => {
+            const n = payload.new as any;
+            if (!n?.id) return prevNotifications;
+
+            // ✅ CORRIGIDO: Usar apenas propriedades que existem no tipo Notification
+            const newItem: Notification = {
+              id: n.id,
+              user_id: n.user_id ?? userId, // ← Obrigatório
+              type: n.type,
+              target_type: n.target_type ?? null,
+              target_id: n.target_id ?? null,
+              payload: n.payload ?? {}, // ← Obrigatório
+              read: false,
+              created_at: n.created_at,
+            };
+            return [newItem, ...prevNotifications];
+          });
         },
       )
       .subscribe();
@@ -122,8 +140,8 @@ export default function NotificationBell() {
                 className="text-xs text-primary hover:underline"
                 onClick={async () => {
                   await markAllRead();
-                  setNotifications((prev) =>
-                    prev.map((n) => ({ ...n, read: true })),
+                  setNotifications((prevNotifications) =>
+                    prevNotifications.map((n) => ({ ...n, read: true })),
                   );
                   setUnread(0);
                 }}

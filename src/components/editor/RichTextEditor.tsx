@@ -46,11 +46,13 @@ type Props = {
   valueHtml: string;
   onChangeHtml: (html: string) => void;
   placeholder?: string;
-  bucket?: string; // Mantido para compatibilidade, mas não usado
-  folder?: string; // Mantido para compatibilidade, mas não usado
+  bucket?: string;
+  folder?: string;
   compact?: boolean;
   imageInsertMode?: "inline" | "tag" | "both";
   enableTables?: boolean;
+  showWordCount?: boolean;
+  warnOnLeave?: boolean;
 };
 
 function getEditorCss() {
@@ -141,19 +143,54 @@ function getEditorCss() {
     outline: none;
   }
   .amino-editor .ProseMirror {
-    min-height: 80px;
+    min-height: 72px;
     max-height: 200px;
     overflow-y: auto;
-    padding: 0.75rem;
+    padding: 0.625rem 0.75rem;
     overflow-wrap: anywhere;
     word-break: break-word;
+    font-size: 0.9375rem;
+    line-height: 1.6;
   }
+  .amino-editor .is-editor-empty .ProseMirror-trailingBreak ~ *,
   .amino-editor .is-editor-empty:before {
     color: hsl(var(--muted-foreground));
     content: attr(data-placeholder);
     float: left;
     height: 0;
     pointer-events: none;
+    font-size: 0.9375rem;
+  }
+  .amino-toolbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 6px;
+    padding: 0 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    transition: background 0.15s, color 0.15s;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+  }
+  .amino-toolbar-btn:hover {
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+  }
+  .amino-toolbar-btn.active {
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+  }
+  .amino-toolbar-sep {
+    width: 1px;
+    height: 16px;
+    background: hsl(var(--border));
+    margin: 0 3px;
+    flex-shrink: 0;
   }
 `;
 }
@@ -184,12 +221,37 @@ export default function RichTextEditor({
   compact = false,
   imageInsertMode = "inline",
   enableTables = false,
+  showWordCount = false,
+  warnOnLeave = false,
 }: Props) {
   const pickImageRef = useRef<HTMLInputElement>(null);
   const imageModeRef = useRef<"inline" | "tag">("inline");
   const [thumbnails, setThumbnails] = useState<
     Array<{ url: string; id: string }>
   >([]);
+
+  // Contagem de palavras
+  const wordCount = useMemo(() => {
+    const text = valueHtml
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) return 0;
+    return text.split(" ").filter(Boolean).length;
+  }, [valueHtml]);
+
+  // Aviso antes de sair com conteúdo
+  useEffect(() => {
+    if (!warnOnLeave) return;
+    const hasContent = valueHtml.trim() && valueHtml.trim() !== "<p></p>";
+    if (!hasContent) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [warnOnLeave, valueHtml]);
 
   const editor = useEditor({
     extensions: [
@@ -325,50 +387,36 @@ export default function RichTextEditor({
       <style dangerouslySetInnerHTML={{ __html: getEditorCss() }} />
 
       {/* Toolbar */}
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-0.5 border-b p-2",
-          compact && "gap-1 p-1.5",
-        )}
-      >
+      <div className="flex items-center gap-0.5 overflow-x-auto border-b px-2 py-1.5 scrollbar-none">
         {/* Text formatting */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.bold && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.bold && "active")}
           title="Bold (Ctrl+B)"
         >
-          <Bold className="h-4 w-4" />
+          <Bold className="h-3.5 w-3.5" />
         </button>
 
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.italic && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.italic && "active")}
           title="Italic (Ctrl+I)"
         >
-          <Italic className="h-4 w-4" />
+          <Italic className="h-3.5 w-3.5" />
         </button>
 
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleUnderline().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.underline && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.underline && "active")}
           title="Underline (Ctrl+U)"
         >
-          <UnderlineIcon className="h-4 w-4" />
+          <UnderlineIcon className="h-3.5 w-3.5" />
         </button>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="amino-toolbar-sep" />
 
         {/* Headings */}
         <button
@@ -376,10 +424,7 @@ export default function RichTextEditor({
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 1 }).run()
           }
-          className={cn(
-            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
-            a.h1 && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.h1 && "active")}
           title="Heading 1"
         >
           H1
@@ -390,10 +435,7 @@ export default function RichTextEditor({
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 2 }).run()
           }
-          className={cn(
-            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
-            a.h2 && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.h2 && "active")}
           title="Heading 2"
         >
           H2
@@ -404,43 +446,34 @@ export default function RichTextEditor({
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 3 }).run()
           }
-          className={cn(
-            "rounded px-2 py-1.5 text-xs font-medium transition hover:bg-muted",
-            a.h3 && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.h3 && "active")}
           title="Heading 3"
         >
           H3
         </button>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="amino-toolbar-sep" />
 
         {/* Lists */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.bullet && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.bullet && "active")}
           title="Bullet List"
         >
-          <List className="h-4 w-4" />
+          <List className="h-3.5 w-3.5" />
         </button>
 
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.ordered && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.ordered && "active")}
           title="Ordered List"
         >
-          <ListOrdered className="h-4 w-4" />
+          <ListOrdered className="h-3.5 w-3.5" />
         </button>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="amino-toolbar-sep" />
 
         {/* Link */}
         <button
@@ -451,13 +484,10 @@ export default function RichTextEditor({
               editor.chain().focus().setLink({ href: url }).run();
             }
           }}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.link && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.link && "active")}
           title="Add Link"
         >
-          <Link2 className="h-4 w-4" />
+          <Link2 className="h-3.5 w-3.5" />
         </button>
 
         {/* Image (inline) */}
@@ -468,10 +498,10 @@ export default function RichTextEditor({
               imageModeRef.current = "inline";
               pickImageRef.current?.click();
             }}
-            className="rounded p-1.5 transition hover:bg-muted"
+            className="amino-toolbar-btn"
             title="Insert Image"
           >
-            <ImageIcon className="h-4 w-4" />
+            <ImageIcon className="h-3.5 w-3.5" />
           </button>
         )}
 
@@ -483,42 +513,39 @@ export default function RichTextEditor({
               imageModeRef.current = "tag";
               pickImageRef.current?.click();
             }}
-            className="rounded p-1.5 transition hover:bg-muted"
+            className="amino-toolbar-btn"
             title="Insert Image Tag [img:...]"
           >
-            <Tag className="h-4 w-4" />
+            <Tag className="h-3.5 w-3.5" />
           </button>
         )}
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="amino-toolbar-sep" />
 
         {/* Blockquote */}
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          className={cn(
-            "rounded p-1.5 transition hover:bg-muted",
-            a.blockquote && "bg-muted",
-          )}
+          className={cn("amino-toolbar-btn", a.blockquote && "active")}
           title="Blockquote"
         >
-          <Quote className="h-4 w-4" />
+          <Quote className="h-3.5 w-3.5" />
         </button>
 
         {/* Horizontal Rule */}
         <button
           type="button"
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
-          className="rounded p-1.5 transition hover:bg-muted"
+          className="amino-toolbar-btn"
           title="Horizontal Rule"
         >
-          <Minus className="h-4 w-4" />
+          <Minus className="h-3.5 w-3.5" />
         </button>
 
         {/* Tables (if enabled) */}
         {enableTables && (
           <>
-            <div className="mx-1 h-5 w-px bg-border" />
+            <div className="amino-toolbar-sep" />
 
             <button
               type="button"
@@ -529,13 +556,10 @@ export default function RichTextEditor({
                   .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
                   .run()
               }
-              className={cn(
-                "rounded p-1.5 transition hover:bg-muted",
-                a.table && "bg-muted",
-              )}
+              className={cn("amino-toolbar-btn", a.table && "active")}
               title="Insert Table"
             >
-              <Table2 className="h-4 w-4" />
+              <Table2 className="h-3.5 w-3.5" />
             </button>
 
             {a.table && (
@@ -543,28 +567,28 @@ export default function RichTextEditor({
                 <button
                   type="button"
                   onClick={() => editor.chain().focus().addColumnAfter().run()}
-                  className="rounded p-1.5 transition hover:bg-muted"
+                  className="amino-toolbar-btn"
                   title="Add Column"
                 >
-                  <Columns className="h-4 w-4" />
+                  <Columns className="h-3.5 w-3.5" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => editor.chain().focus().addRowAfter().run()}
-                  className="rounded p-1.5 transition hover:bg-muted"
+                  className="amino-toolbar-btn"
                   title="Add Row"
                 >
-                  <Rows className="h-4 w-4" />
+                  <Rows className="h-3.5 w-3.5" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => editor.chain().focus().deleteTable().run()}
-                  className="rounded p-1.5 text-destructive transition hover:bg-destructive/10"
+                  className="amino-toolbar-btn text-destructive hover:!bg-destructive/10"
                   title="Delete Table"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </>
             )}
@@ -574,6 +598,13 @@ export default function RichTextEditor({
 
       {/* Editor */}
       <EditorContent editor={editor} />
+
+      {/* Word count */}
+      {showWordCount && (
+        <div className="flex justify-end border-t px-3 py-1 text-[11px] text-muted-foreground">
+          {wordCount} {wordCount === 1 ? "palavra" : "palavras"}
+        </div>
+      )}
 
       {/* Thumbnails strip */}
       {thumbnails.length > 0 && (
