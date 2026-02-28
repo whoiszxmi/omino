@@ -5,25 +5,23 @@
  * Esta função agora usa a API route /api/upload que faz upload para R2
  */
 
+import { uploadImageAction } from "@/app/actions/upload";
+
 export async function uploadPublicImage({
   file,
   type = "post",
 }: {
   file: File;
-  /** Tipo de imagem para otimização apropriada */
   type?: "avatar" | "banner" | "wallpaper" | "post" | "wiki";
-  /** @deprecated bucket não é mais usado (mantido para compatibilidade) */
   bucket?: string;
-  /** @deprecated folder não é mais usado (mantido para compatibilidade) */
   folder?: string;
 }): Promise<string> {
-  // Validar tamanho
   const maxSizes = {
-    avatar: 2 * 1024 * 1024, // 2MB
-    banner: 5 * 1024 * 1024, // 5MB
-    wallpaper: 10 * 1024 * 1024, // 10MB
-    post: 5 * 1024 * 1024, // 5MB
-    wiki: 5 * 1024 * 1024, // 5MB
+    avatar: 2 * 1024 * 1024,
+    banner: 5 * 1024 * 1024,
+    wallpaper: 10 * 1024 * 1024,
+    post: 5 * 1024 * 1024,
+    wiki: 5 * 1024 * 1024,
   };
 
   if (file.size > maxSizes[type]) {
@@ -32,29 +30,21 @@ export async function uploadPublicImage({
     );
   }
 
-  // Validar tipo
   if (!file.type.startsWith("image/")) {
     throw new Error("Arquivo deve ser uma imagem");
   }
 
-  // Preparar FormData
   const formData = new FormData();
   formData.append("file", file);
   formData.append("type", type);
 
-  // Upload via API route (usa R2)
-  const response = await fetch("/api/upload", {
-    method: "POST",
-    body: formData,
-  });
+  const result = await uploadImageAction(formData);
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Erro ao fazer upload");
+  if (!result.success) {
+    throw new Error(result.error || "Erro ao fazer upload");
   }
 
-  const data = await response.json();
-  return data.url; // URL do Cloudflare R2
+  return result.url!;
 }
 
 /**
