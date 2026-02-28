@@ -1,7 +1,7 @@
 // components/editor/RichTextEditor.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   EditorContent,
   useEditor,
@@ -38,6 +38,7 @@ import {
   ListOrdered,
   Minus,
   Quote,
+  X,
 } from "lucide-react";
 
 type Props = {
@@ -67,11 +68,7 @@ function getEditorCss() {
     word-break: break-word;
   }
   .amino-editor img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 12px;
-    display: block;
-    margin: 8px 0;
+    display: none !important;
   }
   .amino-editor a {
     color: hsl(var(--primary));
@@ -139,10 +136,12 @@ function getEditorCss() {
     outline: none;
   }
   .amino-editor .ProseMirror {
-    min-height: 120px;
-    max-height: 400px;
+    min-height: 80px;
+    max-height: 200px;
     overflow-y: auto;
     padding: 0.75rem;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .amino-editor .is-editor-empty:before {
     color: hsl(var(--muted-foreground));
@@ -183,6 +182,9 @@ export default function RichTextEditor({
 }: Props) {
   const pickImageRef = useRef<HTMLInputElement>(null);
   const imageModeRef = useRef<"inline" | "tag">("inline");
+  const [thumbnails, setThumbnails] = useState<
+    Array<{ url: string; id: string }>
+  >([]);
 
   const editor = useEditor({
     extensions: [
@@ -269,22 +271,35 @@ export default function RichTextEditor({
     if (!file || !editor) return;
 
     try {
-      // Upload via R2
       const url = await uploadImage(file);
+      const id = Math.random().toString(36).substring(7);
 
-      // Inserir no editor
       if (imageModeRef.current === "tag") {
         editor.chain().focus().insertContent(`[img:${url}]`).run();
       } else {
+        // Armazena como thumbnail e insere no HTML silenciosamente
         editor.chain().focus().setImage({ src: url, alt: "image" }).run();
+        setThumbnails((prev) => [...prev, { url, id }]);
       }
     } catch (err: unknown) {
       console.error(
         "Upload falhou:",
         err instanceof Error ? err.message : String(err),
       );
-      // Você pode adicionar um toast aqui se quiser
-      // toast.error(err instanceof Error ? err.message : "Erro ao fazer upload");
+    }
+  }
+
+  function removeThumbnail(id: string, url: string) {
+    setThumbnails((prev) => prev.filter((t) => t.id !== id));
+    // Remove do editor também
+    if (editor) {
+      const content = editor.getHTML();
+      const div = document.createElement("div");
+      div.innerHTML = content;
+      div
+        .querySelectorAll(`img[src="${url}"]`)
+        .forEach((el) => el.parentElement?.removeChild(el));
+      editor.commands.setContent(div.innerHTML, { emitUpdate: true });
     }
   }
 
@@ -544,6 +559,32 @@ export default function RichTextEditor({
 
       {/* Editor */}
       <EditorContent editor={editor} />
+
+      {/* Thumbnails strip */}
+      {thumbnails.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t px-3 py-2">
+          {thumbnails.map((thumb) => (
+            <div
+              key={thumb.id}
+              className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border bg-muted"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumb.url}
+                alt="anexo"
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => removeThumbnail(thumb.id, thumb.url)}
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Hidden file input */}
       <input
